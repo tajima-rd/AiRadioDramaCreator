@@ -26,8 +26,12 @@ def setup_main_ui(main_window_instance):
 
     # "インポート" メニュー
     import_menu = menu_bar.addMenu("インポート")
+
     import_scenario_action = QAction("シナリオのインポート...", main_window_instance)
     import_menu.addAction(import_scenario_action)
+
+    import_md_scenario_action = QAction("シナリオの分割インポート...", main_window_instance)
+    import_menu.addAction(import_md_scenario_action)
 
     # 設定メニュー
     settings_menu = menu_bar.addMenu("設定")
@@ -139,6 +143,7 @@ def setup_main_ui(main_window_instance):
         "new_action": new_action,
         "open_action": open_action,
         "import_scenario_action": import_scenario_action,
+        "import_md_scenario_action": import_md_scenario_action, 
         "settings_api_action": settings_api_action,     # ここを追加
         "settings_speaker_action": settings_speaker_action # ここを追加
     }

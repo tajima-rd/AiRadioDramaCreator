@@ -20,7 +20,12 @@ from .dialogs import SettingsDialog, SpeakerDialog
 
 try:
     from core.configs import Project
-    from core.orchestrator import generate_dialog_from_script, generate_ssml_from_text, generate_audio_from_ssml
+    from core.orchestrator import (
+        generate_dialog_from_script, 
+        generate_ssml_from_text, 
+        generate_audio_from_ssml
+    )
+    from utils.text_processing import split_markdown_to_files
     from utils.project_loader import load_project_config, save_project_config
     from core.api_client import ApiKeyManager
     from core.api_client import GeminiApiClient
@@ -253,6 +258,7 @@ class AppGUI(QMainWindow):
         ui_elements_dict["settings_api_action"].triggered.connect(self.show_settings_dialog)
         ui_elements_dict["settings_speaker_action"].triggered.connect(self.show_speaker_dialog)
         ui_elements_dict["import_scenario_action"].triggered.connect(self.import_scenario_files)
+        ui_elements_dict["import_md_scenario_action"].triggered.connect(self.import_md_scenario_action)
 
         # 各処理ステージのボタンにメソッドを接続
         self.start_dialog_creation_btn.clicked.connect(self.start_dialog_creation)
@@ -583,6 +589,54 @@ class AppGUI(QMainWindow):
             log_msg = "プロジェクトが読み込まれていないため、フォルダを開けません。\n"
             self.update_log(log_msg)
             QMessageBox.warning(self, "エラー", "先にプロジェクトを開いてください。")
+
+    def import_md_scenario_action(self):
+        global project
+        if not project:
+            QMessageBox.warning(self, "インポートエラー", "プロジェクトが読み込まれていません。先にプロジェクトを開いてください。")
+            return
+        
+        script_dir = project.root_path / "script"
+        if not script_dir.is_dir():
+            QMessageBox.critical(self, "エラー", f"プロジェクトのシナリオフォルダが見つかりません:\n{script_dir}")
+            return
+
+        # ファイルダイアログでインポート元のファイルパスを取得
+        src_path_str, _ = QFileDialog.getOpenFileName(
+            self,   
+            "インポートするマークダウンファイルを選択",
+            str(Path.home()),
+            "マークダウンファイル (*.md);;すべてのファイル (*)"
+        )
+
+        # ユーザーがキャンセルした場合は何もしない
+        if not src_path_str:
+            self.update_log("ファイルのインポートがキャンセルされました。\n")
+            return 
+        
+        try:
+            # パスをPathオブジェクトに変換
+            src_path = Path(src_path_str)
+            # コピー先のパスを決定 (プロジェクトのscriptフォルダ内)
+            dest_path = script_dir / src_path.name
+            
+            # 1. ファイルをプロジェクトのscriptフォルダにコピー
+            shutil.copy2(src_path, dest_path)
+            self.update_log(f"ファイル '{src_path.name}' をプロジェクトにインポートしました。\n")
+            
+            # 2. コピーしたファイルを指定の見出しで分割する
+            #    入力ファイルとしてコピー先のパス(dest_path)を渡す
+            self.update_log(f"'{dest_path.name}' の分割を開始します...\n")
+            split_markdown_to_files(dest_path, script_dir, 2) # ← ★★★ ここを修正！ ★★★
+            self.update_log(f"'{dest_path.name}' の分割が完了しました。\n")
+
+        except Exception as e:
+            self.update_log(f"エラー: インポートまたは分割処理に失敗しました: {e}\n")
+            QMessageBox.critical(self, "処理エラー", f"処理中にエラーが発生しました:\n{e}")
+
+        # インポートおよび分割後にシナリオファイルリストを更新
+        self.update_scenario_list()
+        
 
     def import_scenario_files(self):
         """

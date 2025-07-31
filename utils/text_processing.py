@@ -1,6 +1,4 @@
-
-
-import re
+import re, os, sys
 from typing import Dict, List
 
 # 循環参照を避けるため、型チェック時のみインポート
@@ -63,7 +61,82 @@ def get_ordered_speakers(text: str, speakers_dict: Dict[str, str]) -> Dict[str, 
     print(f"Speakers found in order: {found_speakers_dict}")
     return found_speakers_dict
 
-# utils/text_processing.py の create_dialog 関数を以下に差し替える
+def split_markdown_to_files(in_file_path: str, output_folder_path: str, indent_num: int):
+    """
+    Markdownファイルを指定された見出しレベルで分割し、個別のテキストファイルとして保存する。
+
+    Args:
+        in_file_path (str): 分割対象のMarkdownファイルのパス。
+        output_folder_path (str): 生成したファイルを保存するフォルダのパス。
+        indent_num (int): 分割の基準となる見出しのレベル（`#`の数）。
+    """
+    # --- 引数のバリデーション ---
+    if not os.path.exists(in_file_path):
+        print(f"エラー: 入力ファイルが見つかりません: '{in_file_path}'")
+        sys.exit(1) # エラーでプログラムを終了
+    if indent_num < 1:
+        print(f"エラー: indent_numは1以上の整数で指定してください。")
+        sys.exit(1)
+
+    # --- 1. 入力ファイルの読み込み ---
+    try:
+        with open(in_file_path, 'r', encoding='utf-8') as f:
+            markdown_text = f.read()
+        print(f"入力ファイルを読み込みました: '{in_file_path}'")
+    except Exception as e:
+        print(f"エラー: ファイルの読み込み中に問題が発生しました。 {e}")
+        sys.exit(1)
+
+    # --- 2. 保存先フォルダの準備 ---
+    os.makedirs(output_folder_path, exist_ok=True)
+    print(f"保存先フォルダ: '{output_folder_path}'")
+
+    # --- 3. 動的に分割パターンを生成 ---
+    split_pattern = f'\n(?={"#" * indent_num} )'
+    heading_marker_to_remove = "#" * indent_num
+    sections = re.split(split_pattern, markdown_text)
+    
+    # 最初の要素が見出しで始まらない場合（導入部など）の調整
+    if sections and not sections[0].strip().startswith('#'):
+        intro_text = sections.pop(0).strip()
+        if intro_text:
+            print(f"\n--- 導入部が見つかりました（この部分はファイル分割されません）---\n{intro_text}\n---------------------------------------------------------")
+
+    file_counter = 1
+    created_files = []
+
+    # --- 4. 分割されたセクションごとにファイルを生成 ---
+    for section in sections:
+        section = section.strip()
+        if not section:
+            continue
+
+        lines = section.split('\n')
+        title_line = lines[0].replace(heading_marker_to_remove, '').strip()
+        content = '\n'.join(lines[1:]).strip()
+
+        sanitized_title = re.sub(r'[\s\\/:\*\?"<>\|・]', '_', title_line)
+        sanitized_title = (sanitized_title[:50] + '..') if len(sanitized_title) > 50 else sanitized_title
+
+        file_name = f"{file_counter:03d}_{sanitized_title}.txt"
+        file_path = os.path.join(output_folder_path, file_name)
+
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            created_files.append(file_name)
+            file_counter += 1
+        except IOError as e:
+            print(f"エラー: ファイル '{file_name}' の書き込みに失敗しました。 {e}")
+
+    # --- 5. 処理結果の表示 ---
+    print("\n処理が完了しました。")
+    if not created_files:
+        print("指定された見出しレベルに一致するセクションが見つからなかったため、ファイルは生成されませんでした。")
+    else:
+        print(f"{len(created_files)}個のファイルが生成されました:")
+        for name in sorted(created_files):
+            print(f"- {name}")
 
 def create_dialog(script_text: str, speakers_dict: Dict[str, str], text_model_client: 'GeminiApiClient') -> str:
     """
@@ -81,21 +154,21 @@ def create_dialog(script_text: str, speakers_dict: Dict[str, str], text_model_cl
         print(speakers_list)
 
         prompt = f"""
-あなたは、渡されたシナリオと登場人物リストに基づき、カジュアルな会話台本を生成するアシスタントです。
+            あなたは、渡されたシナリオと登場人物リストに基づき、カジュアルな会話台本を生成するアシスタントです。
 
-### 絶対的なルール
-- **必ず指定された登場人物名だけを使用してください。** 他の名前（「話者A」など）は絶対に使用してはいけません。
-- **登場人物**: {speakers_list.strip()}
-- 出力は、必ず「名前: セリフ」の形式にしてください。
-- ト書き、情景描写、効果音など、セリフ以外の要素は一切含めないでください。
-- 各セリフの間には、必ず空行を1行入れてください。
-- 同じ話者が連続して話さないようにしてください。
+            ### 絶対的なルール
+            - **必ず指定された登場人物名だけを使用してください。** 他の名前（「話者A」など）は絶対に使用してはいけません。
+            - **登場人物**: {speakers_list.strip()}
+            - 出力は、必ず「名前: セリフ」の形式にしてください。
+            - ト書き、情景描写、効果音など、セリフ以外の要素は一切含めないでください。
+            - 各セリフの間には、必ず空行を1行入れてください。
+            - 同じ話者が連続して話さないようにしてください。
 
-### シナリオ
-{script}
+            ### シナリオ
+            {script}
 
-### 台本
-"""
+            ### 台本
+            """
         
         return TextGenerator(
             api_conn=client,

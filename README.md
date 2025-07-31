@@ -60,7 +60,7 @@ AiRadioDramaCreator/
 
 1.  **リポジトリをクローンする**:
     ```bash
-    git clone https://github.com/YourUsername/AiRadioDramaCreator.git # あなたのリポジトリURLに置き換えてください
+    git clone https://github.com/tajima-rd/AiRadioDramaCreator.git
     cd AiRadioDramaCreator
     ```
 
@@ -117,7 +117,6 @@ CLIモードまたはGUIモードでアプリケーションを起動できま�
 
 -   APIキーは非常に機密性の高い情報です。**絶対にGitリポジトリに直接コミットしないでください。**
 -   ベストプラクティスとしては、APIキーを環境変数として設定するか、`.env` ファイルに保存し、プログラムから読み込む方法を採用してください（このプロジェクトではまだ実装されていませんが、将来的な改善点として推奨されます）。
--   現在、`project.json` にAPIキーを直接記述する形式を採用していますが、GitHubに公開する際は、`project.json` を `.gitignore` に追加し、`project.json.template` を作成して公開することをお勧めします。
 
 ## 貢献
 

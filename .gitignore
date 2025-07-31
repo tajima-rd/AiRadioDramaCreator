@@ -8,6 +8,7 @@ __pycache__/
 # Generated files
 # サンプルディレクトリは全ての生成ファイルと入力ファイルを含むため除外
 sample/
+debug/
 
 # Project configuration files (sensitive data or local settings)
 project_test_minis.json

@@ -1,0 +1,30 @@
+{
+    "project_settings": {
+        "project_name": "（ここにプロジェクト名を入力）",
+        "project_description": "（ここにプロジェクトの説明を入力）",
+        "author": "（ここに作者名を入力）",
+        "version": "1.0.0",
+        "created_at": "2023-10-01T00:00:00Z",
+        "updated_at": "2025-07-30T21:51:05.212820"
+    },
+    "file_paths": {
+        "root_path": ""
+    },
+    "api_settings": {
+        "api_keys": [
+            "ここに Google AI Studio で取得したAPIを貼り付ける"
+        ],
+        "default_api_key_index": 1,
+        "speech_model": "gemini-2.5-flash-preview-tts",
+        "text_model": "gemini-2.5-flash"
+    },
+    "speaker_settings": {
+        "speakers": {
+            "character_1": "Charon",
+            "character_2": "Kore"
+        }
+    },
+    "processing_settings": {
+        "wait_seconds": 30
+    }
+}

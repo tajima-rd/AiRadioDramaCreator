@@ -28,12 +28,32 @@ class TextGenerator:
         ]
     
     def generate(self):
-        for chunk in self.connector.client.models.generate_content_stream(
+        """
+        ストリーミングレスポンスの全チャンクを結合して、完全なテキストを返す。
+        """
+        full_response = "" # 全てのテキストを結合するための空の文字列を準備
+        
+        # ストリーミングAPIを呼び出し、全チャンクをループ処理する
+        stream = self.connector.client.models.generate_content_stream(
             model=self.connector.model_name,
             contents=self.content,
             config=self.content_config,
-        ):
-            return(chunk.text)
+        )
+
+        for chunk in stream:
+            # chunk.textがNoneでないことを確認してから結合
+            if chunk.text:
+                full_response += chunk.text
+        
+        # 全てのループが終わった後で、結合した完全なテキストを返す
+        return full_response.strip()
+        
+        # for chunk in self.connector.client.models.generate_content_stream(
+        #     model=self.connector.model_name,
+        #     contents=self.content,
+        #     config=self.content_config,
+        # ):
+        #     return(chunk.text)
 
 class SpeechGenerator:
     def __init__(self, api_conn: GeminiApiClient, speech_config: SpeechConfig, ssml_dialog: str, parent:Path, basename: str):

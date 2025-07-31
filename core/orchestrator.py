@@ -10,9 +10,51 @@ try:
     from .generators import SpeechGenerator
     from .api_client import ApiKeyManager
     from utils.ssml_utils import convert_dialog_to_ssml
-    from utils.text_processing import get_ordered_speakers, add_ai_interjections
+    from utils.text_processing import create_dialog, get_ordered_speakers, add_ai_interjections
 except ImportError as e:
     print(f"モジュールのインポートエラー: {e}")
+
+def generate_dialog_from_script(txt_file: Path, dialog_output_dir: Path, speakers_dict: dict, text_client: 'GeminiApiClient') -> Path | None:
+    """
+    シナリオファイルから台本を生成し、ファイルに保存する。
+    """
+    print(f"INFO: Converting script '{txt_file.name}' to dialog...")
+
+    try:
+        with open(txt_file, 'r', encoding='utf-8-sig') as f:
+            original_text = f.read()
+    except Exception as e:
+        print(f"ERROR: File read error: {e}")
+        return None
+    
+    # create_dialog関数を呼び出し、text_clientを渡す
+    script_dialog = create_dialog(original_text, speakers_dict, text_client)
+    
+    # 生成された内容が空でないかチェック
+    if not script_dialog:
+        print("ERROR: Dialog generation failed or returned empty content.")
+        return None
+        
+    print("INFO: Dialog generation successful. Saving to file...")
+    # print(script_dialog) # デバッグ用に生成内容を表示したい場合はコメントを外す
+
+    try:
+        # 出力先のファイルパスを定義
+        dialog_output_path = dialog_output_dir / txt_file.name
+        
+        # ディレクトリが存在しない場合は作成
+        dialog_output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 正しい変数 `script_dialog` を使って書き込む
+        with open(dialog_output_path, 'w', encoding='utf-8') as f:
+            f.write(script_dialog)
+        
+        print(f"INFO: Dialog content saved to: {dialog_output_path}")
+        return dialog_output_path # 成功したらファイルパスを返す
+
+    except Exception as e:
+        print(f"ERROR: Error saving Dialog file: {e}")
+        return None
 
 def generate_ssml_from_text(txt_file: Path, ssml_output_dir: Path, speakers_dict: dict, text_client) -> Path | None:
     """

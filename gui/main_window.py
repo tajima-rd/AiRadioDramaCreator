@@ -1,10 +1,10 @@
 import os, sys
 import time
+import shutil # ← この行を追加
 from datetime import datetime
 import traceback
-
 from pathlib import Path
-from typing import List, Dict, Optional 
+from typing import List, Dict, Optional
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -20,7 +20,7 @@ from .dialogs import SettingsDialog, SpeakerDialog
 
 try:
     from core.configs import Project
-    from core.orchestrator import generate_ssml_from_text, generate_audio_from_ssml
+    from core.orchestrator import generate_dialog_from_script, generate_ssml_from_text, generate_audio_from_ssml
     from utils.project_loader import load_project_config, save_project_config
     from core.api_client import ApiKeyManager
     from core.api_client import GeminiApiClient
@@ -41,12 +41,12 @@ speech_client: GeminiApiClient = None
 text_client: GeminiApiClient = None
 
 class DialogCreationWorker(QObject):
-    """シナリオファイルから台本ファイルを生成するためのWorkerクラス（骨格のみ）"""
+    """シナリオファイルから台本ファイルを生成するためのWorkerクラス"""
     finished = pyqtSignal()
     progress = pyqtSignal(str)
     error = pyqtSignal(str)
-    file_status_update = pyqtSignal(str, str) # 処理対象のファイル名とステータスを通知
-    dialog_list_updated = pyqtSignal()        # 処理完了時にダイアログリストの更新を通知
+    file_status_update = pyqtSignal(str, str)
+    dialog_list_updated = pyqtSignal()
 
     def __init__(self, files_to_process: List[Path]):
         super().__init__()
@@ -54,17 +54,50 @@ class DialogCreationWorker(QObject):
         self.is_running = True
 
     def run(self):
-        """台本生成処理を実行します。現在は未実装です。"""
+        """台本生成処理を実行します。"""
+        global project, text_client
         try:
+            if project is None or text_client is None:
+                self.error.emit("エラー: プロジェクトまたはテキストAPIクライアントが初期化されていません。\n")
+                return
+
+            dialog_output_dir = (project.root_path / "dialog").resolve()
             self.progress.emit("--- 台本ファイルの生成を開始します ---\n")
-            # TODO: 将来的にここに台本生成のロジックを実装
-            self.progress.emit("（現在、台本生成機能は未実装です）\n")
-            time.sleep(2) # ダミーの処理時間
-            self.progress.emit("台本ファイルの生成処理が完了しました。\n")
+
+            for i, script_file in enumerate(self.files_to_process):
+                if not self.is_running:
+                    self.file_status_update.emit(script_file.name, "INTERRUPTED")
+                    break
+                
+                try:
+                    self.progress.emit(f"\n[{i+1}/{len(self.files_to_process)}] 台本生成中: {script_file.name}\n")
+                    self.file_status_update.emit(script_file.name, "PROCESSING")
+
+                    # インポートしたバックエンド関数を呼び出す
+                    saved_dialog_path = generate_dialog_from_script(
+                        script_file,
+                        dialog_output_dir,
+                        project.speakers,
+                        text_client
+                    )
+
+                    if saved_dialog_path:
+                        self.progress.emit(f"台本生成成功: {saved_dialog_path.name}\n")
+                        self.file_status_update.emit(script_file.name, "SUCCESS")
+                    else:
+                        self.error.emit(f"ファイル'{script_file.name}'の台本生成に失敗しました。\n")
+                        self.file_status_update.emit(script_file.name, "ERROR")
+                
+                except Exception as e:
+                    self.error.emit(f"台本生成中に予期せぬエラーが発生 ({script_file.name}): {e}\n{traceback.format_exc()}\n")
+                    self.file_status_update.emit(script_file.name, "ERROR")
+
+            self.progress.emit("\n選択されたファイルの台本生成処理が完了しました。\n")
+
         except Exception as e:
-            self.error.emit(f"台本生成中にエラーが発生しました: {e}\n{traceback.format_exc()}\n")
+            self.error.emit(f"致命的なエラーが発生しました: {e}\n{traceback.format_exc()}\n")
         finally:
-            self.dialog_list_updated.emit() # 完了後にリスト更新を通知
+            self.dialog_list_updated.emit() # 完了後にダイアログリストの更新を通知
             self.finished.emit()
 
     def stop(self):
@@ -199,136 +232,6 @@ class AudioCreationWorker(QObject):
         """処理の中断を要求します。"""
         self.is_running = False
 
-# class Worker(QObject):
-#     finished = pyqtSignal()
-#     progress = pyqtSignal(str)
-#     error = pyqtSignal(str)
-#     file_status_update = pyqtSignal(str, str)
-#     audio_list_updated = pyqtSignal()
-
-#     def __init__(self, files_to_process):
-#         super().__init__()
-#         self.files_to_process = files_to_process
-#         self.is_running = True
-    
-#     def run(self):
-#         global project, api_key_manager, speech_client, text_client 
-
-#         try:
-#             if project is None or api_key_manager is None or speech_client is None or text_client is None:
-#                 self.error.emit("エラー: プロジェクトまたはAPIクライアントが初期化されていません。\n")
-#                 return
-            
-#             # パスの解決
-#             root_path = project.root_path
-#             ssml_output_dir = (root_path / "ssml").resolve() 
-#             audio_output_dir = (root_path / "audio").resolve() 
-
-#             # ステージ1: SSML生成
-#             generated_ssml_files = self._generate_ssml_files(ssml_output_dir)
-
-#             # 処理が中断されたか、SSMLが一つも生成されなかった場合はここで終了
-#             if not self.is_running or not generated_ssml_files:
-#                 self.progress.emit("\n音声生成はスキップされました。\n")
-#                 self.finished.emit()
-#                 return
-
-#             # ステージ2: 音声生成
-#             self._generate_audio_files(generated_ssml_files, audio_output_dir)
-
-#             self.progress.emit("\n選択されたファイルの処理が完了しました。\n")
-#         except Exception as e:
-#             self.error.emit(f"致命的なエラーが発生しました: {e}\n")
-#             self.error.emit(f"詳細エラー情報:\n{traceback.format_exc()}\n")
-#         finally:
-#             self.finished.emit()
-    
-#     def _generate_ssml_files(self, ssml_output_dir) -> List[Path]:
-#         """選択されたテキストファイルからSSMLファイルを生成し、成功したパスのリストを返す。"""
-#         global project, text_client
-        
-#         generated_ssml_files = [] # 成功したSSMLファイルのパスを格納するリスト
-#         self.progress.emit("\n--- SSMLファイルの生成を開始します ---\n")
-
-#         for i, txt_file in enumerate(self.files_to_process):
-#             if not self.is_running:
-#                 self.file_status_update.emit(txt_file.name, "INTERRUPTED")
-#                 break
-            
-#             try:
-#                 self.progress.emit(f"\n[{i+1}/{len(self.files_to_process)}] SSML生成中: {txt_file.name}\n")
-#                 self.file_status_update.emit(txt_file.name, "PROCESSING")
-
-#                 saved_ssml_path = generate_ssml_from_text(
-#                     txt_file,
-#                     ssml_output_dir,
-#                     project.speakers,
-#                     text_client
-#                 )
-
-#                 if saved_ssml_path:
-#                     generated_ssml_files.append(saved_ssml_path)
-#                     self.progress.emit(f"SSML生成成功: {saved_ssml_path.name}\n")
-#                 else:
-#                     self.error.emit(f"ファイル'{txt_file.name}'のSSML生成に失敗しました。\n")
-#                     self.file_status_update.emit(txt_file.name, "ERROR")
-            
-#             except Exception as e:
-#                 self.error.emit(f"SSML生成中に予期せぬエラーが発生 ({txt_file.name}): {e}\n")
-#                 self.error.emit(f"詳細エラー情報:\n{traceback.format_exc()}\n")
-#                 self.file_status_update.emit(txt_file.name, "ERROR")
-
-#         return generated_ssml_files
-
-#     def _generate_audio_files(self, ssml_files_to_process: List[Path], audio_output_dir: Path):
-#         """SSMLファイルのリストから音声ファイルを生成する。"""
-#         global project, speech_client
-        
-#         self.progress.emit("\n--- 音声ファイルの生成を開始します ---\n")
-
-#         for i, ssml_file in enumerate(ssml_files_to_process):
-#             if not self.is_running:
-#                 corresponding_txt_file_name = ssml_file.with_suffix(".txt").name
-#                 self.file_status_update.emit(corresponding_txt_file_name, "INTERRUPTED")
-#                 break
-            
-#             status = "ERROR"
-#             corresponding_txt_file_name = ssml_file.with_suffix(".txt").name
-#             try:
-#                 self.progress.emit(f"\n[{i+1}/{len(ssml_files_to_process)}] 音声生成中: {ssml_file.name}\n")
-#                 self.file_status_update.emit(corresponding_txt_file_name, "PROCESSING")
-
-#                 generate_audio_from_ssml(
-#                     ssml_file,
-#                     audio_output_dir,
-#                     project.speakers,
-#                     speech_client
-#                 )
-#                 status = "SUCCESS"
-#             except Exception as e:
-#                 self.error.emit(f"音声生成中に予期せぬエラーが発生 ({ssml_file.name}): {e}\n")
-#                 self.error.emit(f"詳細エラー情報:\n{traceback.format_exc()}\n")
-#                 status = "ERROR"
-#             finally:
-#                 if not self.is_running: status = "INTERRUPTED"
-#                 self.file_status_update.emit(corresponding_txt_file_name, status)
-#                 self.audio_list_updated.emit()
-
-#             # ファイル間の待機時間
-#             wait_seconds = project.wait_time
-#             if not isinstance(wait_seconds, (int, float)):
-#                 self.error.emit(f"警告: 'wait_seconds' の値が数値ではありません。デフォルト値 (30秒) を使用します。\n")
-#                 wait_seconds = 30
-
-#             if i < len(ssml_files_to_process) - 1 and self.is_running:
-#                 self.progress.emit(f"{wait_seconds}秒待機します...\n")
-#                 for _ in range(int(wait_seconds)):
-#                     if not self.is_running: break
-#                     time.sleep(1)
-
-#     def stop(self):
-#         self.is_running = False
-
 class AppGUI(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -349,6 +252,7 @@ class AppGUI(QMainWindow):
         ui_elements_dict["open_action"].triggered.connect(self.open_project_file)
         ui_elements_dict["settings_api_action"].triggered.connect(self.show_settings_dialog)
         ui_elements_dict["settings_speaker_action"].triggered.connect(self.show_speaker_dialog)
+        ui_elements_dict["import_scenario_action"].triggered.connect(self.import_scenario_files)
 
         # 各処理ステージのボタンにメソッドを接続
         self.start_dialog_creation_btn.clicked.connect(self.start_dialog_creation)
@@ -679,7 +583,52 @@ class AppGUI(QMainWindow):
             log_msg = "プロジェクトが読み込まれていないため、フォルダを開けません。\n"
             self.update_log(log_msg)
             QMessageBox.warning(self, "エラー", "先にプロジェクトを開いてください。")
-            
+
+    def import_scenario_files(self):
+        """
+        ファイルダイアログを開き、選択されたTXTファイルをプロジェクトのscriptフォルダにコピーする。
+        """
+        global project
+        if not project:
+            QMessageBox.warning(self, "インポートエラー", "プロジェクトが読み込まれていません。先にプロジェクトを開いてください。")
+            return
+
+        script_dir = project.root_path / "script"
+        if not script_dir.is_dir():
+            QMessageBox.critical(self, "エラー", f"プロジェクトのシナリオフォルダが見つかりません:\n{script_dir}")
+            return
+
+        # ファイルダイアログを開いて複数のファイルを選択させる
+        file_paths_list, _ = QFileDialog.getOpenFileNames(
+            self,
+            "インポートするシナリオファイルを選択（複数選択可）",
+            str(Path.home()),  # 初期ディレクトリをユーザーのホームに設定
+            "テキストファイル (*.txt);;すべてのファイル (*)"
+        )
+
+        if not file_paths_list:
+            # ファイルが選択されなかった（キャンセルされた）場合
+            return
+
+        imported_count = 0
+        for src_path_str in file_paths_list:
+            try:
+                src_path = Path(src_path_str)
+                dest_path = script_dir / src_path.name
+                
+                # ファイルをコピー (shutil.copy2 はメタデータもできるだけ保持する)
+                shutil.copy2(src_path, dest_path)
+                
+                self.update_log(f"シナリオ '{src_path.name}' をインポートしました。\n")
+                imported_count += 1
+            except Exception as e:
+                self.update_log(f"エラー: '{src_path.name}' のインポートに失敗しました: {e}\n")
+
+        if imported_count > 0:
+            self.update_log(f"--- {imported_count}件のシナリオファイルをインポートしました ---\n")
+            # インポート後にシナリオファイルリストを更新
+            self.update_scenario_list()
+
     def update_file_list(self, dir_path: Path, list_widget: QListWidget, file_type: str = "text", label: str = "ファイル"):
         list_widget.clear()
         if dir_path.is_dir():

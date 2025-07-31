@@ -24,6 +24,11 @@ def setup_main_ui(main_window_instance):
     open_action = QAction("プロジェクトを開く...", main_window_instance)
     file_menu.addAction(open_action)
 
+    # "インポート" メニュー
+    import_menu = menu_bar.addMenu("インポート")
+    import_scenario_action = QAction("シナリオのインポート...", main_window_instance)
+    import_menu.addAction(import_scenario_action)
+
     # 設定メニュー
     settings_menu = menu_bar.addMenu("設定")
     settings_api_action = QAction("API/モデル設定...", main_window_instance)
@@ -46,13 +51,11 @@ def setup_main_ui(main_window_instance):
     main_window_instance.project_path_label.setReadOnly(True)
     main_layout.addWidget(main_window_instance.project_path_label)
 
-
     # 新しいファイルリストウィジェットとレイアウトの定義
     file_lists_container_layout = QVBoxLayout() # 全体のコンテナを垂直レイアウトに
 
     # 上段のファイルリスト (シナリオとダイヤログ)
     top_row_file_lists_layout = QHBoxLayout()
-    
 
     # 左上: 処理対象のシナリオファイル一覧
     scenario_files_layout = QVBoxLayout()
@@ -125,7 +128,6 @@ def setup_main_ui(main_window_instance):
     file_lists_container_layout.addLayout(bottom_row_file_lists_layout) # 下段の2つのリストを追加
     main_layout.addLayout(file_lists_container_layout) # メインレイアウトに横並びレイアウトを追加
 
-
     # ログ表示ボックス
     main_window_instance.log_box = QTextEdit()
     main_window_instance.log_box.setReadOnly(True)
@@ -136,6 +138,7 @@ def setup_main_ui(main_window_instance):
     return {
         "new_action": new_action,
         "open_action": open_action,
+        "import_scenario_action": import_scenario_action,
         "settings_api_action": settings_api_action,     # ここを追加
         "settings_speaker_action": settings_speaker_action # ここを追加
     }

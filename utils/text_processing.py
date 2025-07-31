@@ -63,6 +63,63 @@ def get_ordered_speakers(text: str, speakers_dict: Dict[str, str]) -> Dict[str, 
     print(f"Speakers found in order: {found_speakers_dict}")
     return found_speakers_dict
 
+# utils/text_processing.py の create_dialog 関数を以下に差し替える
+
+def create_dialog(script_text: str, speakers_dict: Dict[str, str], text_model_client: 'GeminiApiClient') -> str:
+    """
+    LLMを使用して、シナリオのテキストから会話形式の台本を生成する。
+    """
+    def get_text_generator(script: str, speakers: Dict[str, str], client: 'GeminiApiClient') -> TextGenerator:
+        # 出力形式のサンプルを作成
+        speakers_list = ""
+        sample_text = ""
+        for character in speakers.keys():
+            # 正しい改行コード `\n` を使用
+            sample_text += f"{character}: （ここにセリフが入ります）\n\n"
+            speakers_list += f"{character}\n"
+        
+        print(speakers_list)
+
+        prompt = f"""
+あなたは、渡されたシナリオと登場人物リストに基づき、カジュアルな会話台本を生成するアシスタントです。
+
+### 絶対的なルール
+- **必ず指定された登場人物名だけを使用してください。** 他の名前（「話者A」など）は絶対に使用してはいけません。
+- **登場人物**: {speakers_list.strip()}
+- 出力は、必ず「名前: セリフ」の形式にしてください。
+- ト書き、情景描写、効果音など、セリフ以外の要素は一切含めないでください。
+- 各セリフの間には、必ず空行を1行入れてください。
+- 同じ話者が連続して話さないようにしてください。
+
+### シナリオ
+{script}
+
+### 台本
+"""
+        
+        return TextGenerator(
+            api_conn=client,
+            write_config=WriteConfig(), # 必要に応じてWriteConfigのパラメータを調整
+            prompt=prompt,
+            parent=None,
+            basename=None
+        )
+
+    # --- ↓ ここが修正箇所です ↓ ---
+    # 先に改行をスペースに置換したプレビュー用の文字列を作成する
+    log_preview = script_text[:30].replace('\n', ' ')
+    print(f"INFO: Generating dialog from script starting with '{log_preview}...'")
+    # --- ↑ ここが修正箇所です ↑ ---
+
+    try:
+        # TextGeneratorインスタンスを作成し、.generate()を呼び出してAPIにリクエスト
+        generator = get_text_generator(script_text, speakers_dict, text_model_client)
+        dialog_text = generator.generate()
+        return dialog_text
+    except Exception as e:
+        print(f"ERROR: An error occurred during dialog generation: {e}")
+        return "" # エラーが発生した場合は空文字列を返す
+
 def add_ai_interjections(dialog_text: str, speakers_dict: Dict[str, str], text_model_client: 'GeminiApiClient') -> str:
     def get_text_generator(previous_speech: str) -> TextGenerator:
         prompt = f"""

@@ -19,6 +19,7 @@
 
 ## プロジェクト構造
 
+```
 AiRadioDramaCreator/
 ├── core/ # アプリケーションのコアロジック
 │ ├── api_client.py # APIクライアント (ApiKeyManager, GeminiApiClient)
@@ -37,6 +38,7 @@ AiRadioDramaCreator/
 ├── main.py # アプリケーションのエントリーポイント (CLI/GUIモード)
 ├── project.json # プロジェクト設定ファイルのサンプル
 └── requirements.txt # 依存ライブラリリスト
+```
 
 ## インストール
 

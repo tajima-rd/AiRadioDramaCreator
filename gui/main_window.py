@@ -339,6 +339,9 @@ class AppGUI(QMainWindow):
             # project グローバル変数を更新
             project.speakers = new_speakers
 
+            # ↓ この部分のプログラムを作る必要がある。
+            self.save_project_config_to_file()
+
             self.update_log("デバッグ: 話者設定が更新されました。\n")
             # 話者設定はAPIクライアントの再初期化には通常影響しない
             # ただし、process_drama_file は project.speakers を参照する。
@@ -637,7 +640,6 @@ class AppGUI(QMainWindow):
         # インポートおよび分割後にシナリオファイルリストを更新
         self.update_scenario_list()
         
-
     def import_scenario_files(self):
         """
         ファイルダイアログを開き、選択されたTXTファイルをプロジェクトのscriptフォルダにコピーする。

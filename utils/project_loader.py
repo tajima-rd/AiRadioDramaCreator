@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from typing import Optional, Dict, List
 
-from core.models import Project, Character, Voice
+from core.models import Project, Character, Voice, convert_speaker_dict_to_character
 
 
 def load_project_from_file(project_file: Path) -> Optional[Project]:

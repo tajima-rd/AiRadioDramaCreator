@@ -1,14 +1,14 @@
 {
     "project_settings": {
         "project_name": "（ここにプロジェクト名を入力）",
-        "project_description": "（ここにプロジェクトの説明を入力）",
-        "author": "（ここに作者名を入力）",
-        "version": "1.0.0",
-        "created_at": "2023-10-01T00:00:00Z",
-        "updated_at": "2025-07-30T21:51:05.212820"
+        "project_description": "",
+        "author": "",
+        "version": "",
+        "created_at": "2025-08-05T04:27:13.754667",
+        "updated_at": "2025-08-05T04:27:35.859923"
     },
     "file_paths": {
-        "root_path": ""
+        "root_path": null
     },
     "api_settings": {
         "api_keys": [
@@ -18,11 +18,29 @@
         "speech_model": "gemini-2.5-flash-preview-tts",
         "text_model": "gemini-2.5-flash"
     },
-    "speaker_settings": {
-        "speakers": {
-            "character_1": "Charon",
-            "character_2": "Kore"
-        }
+    "character_settings": {
+        "characters": [
+            {
+                "name": "character_1",
+                "voice": "Charon",
+                "personality": "",
+                "traits": [],
+                "speech_style": "",
+                "verbal_tics": [],
+                "background": null,
+                "role": null
+            },
+            {
+                "name": "character_2",
+                "voice": "Kore",
+                "personality": "",
+                "traits": [],
+                "speech_style": "",
+                "verbal_tics": [],
+                "background": null,
+                "role": null
+            }
+        ]
     },
     "processing_settings": {
         "wait_seconds": 30

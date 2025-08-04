@@ -7,7 +7,7 @@ from pydub import AudioSegment
 from google.genai import types
 
 from .api_client import GeminiApiClient
-from .configs import SpeechConfig, WriteConfig
+from .models import SpeechConfig, WriteConfig
 
 class TextGenerator:
     def __init__(self, api_conn: GeminiApiClient, write_config: WriteConfig, prompt: str=None, parent=None, basename=None):

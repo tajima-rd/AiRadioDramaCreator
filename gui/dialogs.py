@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt # QHeaderView.ResizeMode.Stretch のために必要
 from PyQt6.QtGui import QFont # フォント変更のためにインポート
 from typing import List, Dict, Optional # 型ヒントのためにインポート
-from core.configs import Voice, Character
+from core.models import Voice, Character
 
 class CharacterEditDialog(QDialog):
     """

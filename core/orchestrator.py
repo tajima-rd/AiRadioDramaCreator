@@ -6,7 +6,7 @@ from typing import Dict, List
 
 
 try:
-    from .configs import SpeechConfig, Character
+    from .models import SpeechConfig, Character
     from .generators import SpeechGenerator
     from .api_client import ApiKeyManager
     from utils.ssml_utils import convert_dialog_to_ssml

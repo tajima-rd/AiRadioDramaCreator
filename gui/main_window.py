@@ -19,7 +19,7 @@ from .app_ui_setup import setup_main_ui
 from .dialogs import SettingsDialog, SpeakerDialog
 
 try:
-    from core.configs import Project, Character, convert_speaker_dict_to_character
+    from core.models import Project, Character, convert_speaker_dict_to_character
     from core.orchestrator import (
         generate_dialog_from_script, 
         generate_ssml_from_text, 

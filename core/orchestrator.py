@@ -70,7 +70,15 @@ def generate_ssml_from_text(txt_file: Path, ssml_output_dir: Path, characters: L
     Characterオブジェクトのリストを扱うように修正されています。
     成功した場合はSSMLファイルのPathオブジェクトを、失敗した場合は None を返す。
     """
-    print(f"DEBUG: Entering generate_ssml_from_text for {txt_file.name}")
+
+    print("\n" + "="*50)
+    print(f"--- DEBUG: generate_ssml_from_text に渡されたキャラクターリスト ---")
+    if characters:
+        for char in characters:
+            print(f"  - 名前: {char.name}, ボイス: {char.voice.api_name}")
+    else:
+        print("  キャラクターリストが空またはNoneです。")
+    print("="*50 + "\n")
 
     try:
         with open(txt_file, 'r', encoding='utf-8-sig') as f:
@@ -120,39 +128,35 @@ def generate_ssml_from_text(txt_file: Path, ssml_output_dir: Path, characters: L
 def generate_audio_from_ssml(
     ssml_file_path: Path,
     audio_output_dir: Path,
-    all_project_characters: List[Character], # 引数名をより明確に
+    characters: List[Character], # ★引数を speakers_dict から characters に変更
     speech_client
     ):
     """
     SSMLファイルから音声ファイルを生成する。
-    (get_ordered_characters を使用する最終版)
+    Characterオブジェクトのリストを扱うように修正されています。
     """
     print(f"DEBUG: Entering generate_audio_from_ssml for {ssml_file_path.name}")
     
-    # 1. SSMLファイルを読み込む (変更なし)
     try:
         with open(ssml_file_path, 'r', encoding='utf-8') as f:
             ssml_dialog_content = f.read()
     except Exception as e:
-        print(f"Error reading SSML file '{ssml_file_path}': {e}")
+        print(f"エラー: SSMLファイル '{ssml_file_path}' の読み込みに失敗しました: {e}")
         return
 
-    # 2. ★★★ ここが新しいロジック ★★★
-    # 新しい関数を呼び出して、SSMLに登場する順のCharacterオブジェクトリストを取得
-    ordered_characters_for_audio = get_ordered_characters(ssml_dialog_content, all_project_characters)
+    # ★変更点: SSMLの内容から「Characterオブジェクト」の登場順リストを再生成
+    # 呼び出す関数を get_ordered_characters に変更
+    ordered_characters_for_audio = get_ordered_characters(ssml_dialog_content, characters)
     
     if not ordered_characters_for_audio:
-        print("No known characters found in the SSML. Aborting audio generation.")
+        print("SSMLから既知のキャラクターが見つかりませんでした。音声生成を中断します。")
         return
+    
+    speakers_for_audio = {char.name: char.voice.api_name for char in ordered_characters_for_audio}
+    print(speakers_for_audio)
+    speech_config = SpeechConfig(speakers=speakers_for_audio)
 
-    # 3. SpeechConfigが期待する形式 (名前とボイスの辞書) に変換する
-    #    これはSpeechConfigの仕様に合わせるための変換処理
-    speaker_voice_map = {char.name: char.voice for char in ordered_characters_for_audio}
-
-    # 4. SpeechConfig を作成
-    speech_config = SpeechConfig(speakers=speaker_voice_map)
-
-    # 5. SpeechGenerator を作成 (変更なし)
+    # SpeechGeneratorの呼び出し
     dialog_generator = SpeechGenerator(
         api_conn=speech_client, 
         speech_config=speech_config,
@@ -161,46 +165,9 @@ def generate_audio_from_ssml(
         basename=ssml_file_path.stem
     )
 
-    print("generate sound dialog...")
+    print("音声を生成しています...")
     dialog_generator.generate()
-
-# def generate_audio_from_ssml(
-#     ssml_file_path: Path, # ★変更: SSML文字列の代わりにファイルパスを受け取る
-#     audio_output_dir: Path,
-#     speakers_dict: dict, 
-#     speech_client
-#     ):
-#     """
-#     SSMLファイルから音声ファイルを生成する。
-#     """
-#     print(f"DEBUG: Entering generate_audio_from_ssml for {ssml_file_path.name}")
-    
-#     # ★追加: SSMLファイルを読み込むロジック
-#     try:
-#         with open(ssml_file_path, 'r', encoding='utf-8') as f:
-#             ssml_dialog_content = f.read()
-#     except Exception as e:
-#         print(f"Error reading SSML file '{ssml_file_path}': {e}")
-#         return
-
-#     # SSMLの内容から話者リストを再生成
-#     ordered_speaker_dict_for_audio = get_ordered_speakers(ssml_dialog_content, speakers_dict)
-#     if not ordered_speaker_dict_for_audio:
-#         print("No known speakers found in the SSML. Aborting audio generation.")
-#         return
-
-#     speech_config = SpeechConfig(speakers=ordered_speaker_dict_for_audio)
-
-#     dialog_generator = SpeechGenerator(
-#         api_conn=speech_client, 
-#         speech_config=speech_config,
-#         ssml_dialog=ssml_dialog_content, # ★変更: 読み込んだ内容を渡す
-#         parent=audio_output_dir, 
-#         basename=ssml_file_path.stem # ★変更: SSMLファイルのステムをbasenameとして使用
-#     )
-
-#     print("generate sound dialog...")
-#     dialog_generator.generate()
+    print(f"音声ファイルの生成が完了しました: {ssml_file_path.stem}.mp3")
 
 def run_project_processing(config: dict, key_manager: ApiKeyManager):
     """プロジェクト全体を処理するCLIのメインフロー"""

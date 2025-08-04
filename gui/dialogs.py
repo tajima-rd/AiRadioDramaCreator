@@ -1,45 +1,170 @@
 from PyQt6.QtWidgets import (
-    QDialog, QDialogButtonBox, QFormLayout, QLineEdit,
-    QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QHeaderView, QPushButton, QMessageBox, # QMessageBox を追加（エラー表示用）
-    QListWidget, QListWidgetItem, QInputDialog, QLabel, QComboBox # QListWidget, QListWidgetItem, QInputDialog を追加
+    QApplication, QDialog, QDialogButtonBox, QFormLayout, QLineEdit,
+    QVBoxLayout, QHBoxLayout, QListWidget, QPushButton, QMessageBox,
+    QLabel, QComboBox, QInputDialog, QTextEdit, QListWidgetItem
 )
+
 from PyQt6.QtCore import Qt # QHeaderView.ResizeMode.Stretch のために必要
 from PyQt6.QtGui import QFont # フォント変更のためにインポート
 from typing import List, Dict, Optional # 型ヒントのためにインポート
+from core.configs import Voice, Character
 
-AVAILABLE_VOICES = [
-    "Achernar -- Soft(F)", 
-    "Achird -- Friendly(M)", 
-    "Algenib -- Gravelly(M)", 
-    "Algieba -- Smooth(M)", 
-    "Alnilam -- Firm(M)",
-    "Aoede -- Breezy(F)", 
-    "Autonoe -- Bright(F)", 
-    "Callirrhoe -- Easy-going(F)",
-    "Charon -- Informative(M)",
-    "Despina -- Smooth(F)",
-    "Enceladus -- Breathy(M)", 
-    "Erinome -- Clear(F)",
-    "Fenrir -- Excitable(M)", 
-    "Gacrux -- Mature(F)", 
-    "Iapetus -- Clear(M)",
-    "Kore -- Firm(F)", 
-    "Laomedeia -- Upbeat(F)", 
-    "Leda -- Youthful(F)",
-    "Orus -- Firm(M)", 
-    "Puck -- Upbeat(M)", 
-    "Pulcherrima -- Forward(M)",
-    "Rasalgethi -- Informative(M)",
-    "Sadachbia -- Lively(M)", 
-    "Sadaltager -- Knowledgeable(M)", 
-    "Schedar -- Even(M)", 
-    "Sulafat -- Warm(F)",
-    "Umbriel -- Easy-going(M)", 
-    "Vindemiatrix -- Gentle(F)",
-    "Zephyr -- Bright(F)",
-    "Zubenelgenubi -- Casual(M)"
-]
+class CharacterEditDialog(QDialog):
+    """
+    一人のキャラクターの情報を編集するためのダイアログ。
+    新規作成と既存キャラクターの編集の両方に対応します。
+    """
+    def __init__(self, character: Optional[Character] = None, parent=None):
+        super().__init__(parent)
+        self.character = character  # 編集対象のキャラクターオブジェクト
+
+        # ダイアログのタイトルをモード（新規 or 編集）によって変更
+        title = "キャラクターの編集" if self.character else "キャラクターの新規作成"
+        self.setWindowTitle(title)
+        self.setMinimumSize(500, 600)
+
+        # --- UIウィジェットの初期化 ---
+        self.name_input = QLineEdit()
+        self.voice_combo = QComboBox()
+        self.personality_input = QLineEdit()
+        self.speech_style_input = QLineEdit()
+        self.role_input = QLineEdit()
+        self.background_input = QTextEdit()
+        self.background_input.setAcceptRichText(False) # プレーンテキストのみを許容
+
+        # 特性(traits)用のリストとボタン
+        self.traits_list = QListWidget()
+        self.add_trait_btn = QPushButton("追加")
+        self.remove_trait_btn = QPushButton("削除")
+
+        # 口癖(verbal_tics)用のリストとボタン
+        self.tics_list = QListWidget()
+        self.add_tic_btn = QPushButton("追加")
+        self.remove_tic_btn = QPushButton("削除")
+        
+        # --- レイアウトの設定 ---
+        main_layout = QVBoxLayout(self)
+        form_layout = QFormLayout()
+        form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows) # ラベルを長くしても改行されるように
+
+        form_layout.addRow("名前*:", self.name_input)
+        form_layout.addRow("ボイス:", self.voice_combo)
+        form_layout.addRow("性格:", self.personality_input)
+        form_layout.addRow("話し方のスタイル:", self.speech_style_input)
+        form_layout.addRow("役割:", self.role_input)
+        form_layout.addRow("背景設定:", self.background_input)
+        
+        # 特性(traits)のレイアウト
+        traits_layout = self.create_list_edit_layout(
+            self.traits_list, self.add_trait_btn, self.remove_trait_btn)
+        form_layout.addRow("特性:", traits_layout)
+        
+        # 口癖(verbal_tics)のレイアウト
+        tics_layout = self.create_list_edit_layout(
+            self.tics_list, self.add_tic_btn, self.remove_tic_btn)
+        form_layout.addRow("口癖:", tics_layout)
+
+        main_layout.addLayout(form_layout)
+        
+        # OK/Cancelボタン
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        main_layout.addWidget(button_box)
+
+        # --- 初期値の設定と接続 ---
+        self.setup_voice_combo()
+        if self.character:
+            self.populate_data()
+
+        # 接続
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        self.add_trait_btn.clicked.connect(self.add_trait)
+        self.remove_trait_btn.clicked.connect(self.remove_trait)
+        self.add_tic_btn.clicked.connect(self.add_tic)
+        self.remove_tic_btn.clicked.connect(self.remove_tic)
+        
+    def create_list_edit_layout(self, list_widget: QListWidget, add_btn: QPushButton, remove_btn: QPushButton) -> QVBoxLayout:
+        """QListWidgetとAdd/Removeボタンからなる共通レイアウトを作成するヘルパーメソッド"""
+        layout = QVBoxLayout()
+        layout.addWidget(list_widget)
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_layout.addWidget(add_btn)
+        btn_layout.addWidget(remove_btn)
+        layout.addLayout(btn_layout)
+        return layout
+
+    def setup_voice_combo(self):
+        """Voice列挙型からQComboBoxをセットアップする"""
+        for voice in Voice:
+            display_text = f"{voice.api_name} -- {voice.description} ({voice.gender})"
+            self.voice_combo.addItem(display_text, userData=voice)
+
+    def populate_data(self):
+        """既存のキャラクター情報でUIを埋める"""
+        self.name_input.setText(self.character.name)
+        
+        # voice_combo で該当するボイスを選択
+        index = self.voice_combo.findData(self.character.voice)
+        if index >= 0:
+            self.voice_combo.setCurrentIndex(index)
+            
+        self.personality_input.setText(self.character.personality)
+        self.speech_style_input.setText(self.character.speech_style)
+        self.role_input.setText(self.character.role or "")
+        self.background_input.setText(self.character.background or "")
+        
+        self.traits_list.addItems(self.character.traits)
+        self.tics_list.addItems(self.character.verbal_tics)
+
+    # --- リスト編集用スロット ---
+    def add_item_to_list(self, list_widget: QListWidget, title: str):
+        """QInputDialogを使ってリストに項目を追加する共通メソッド"""
+        text, ok = QInputDialog.getText(self, title, "追加する項目:")
+        if ok and text.strip():
+            list_widget.addItem(text.strip())
+            
+    def remove_item_from_list(self, list_widget: QListWidget):
+        """リストから選択中の項目を削除する共通メソッド"""
+        current_row = list_widget.currentRow()
+        if current_row >= 0:
+            list_widget.takeItem(current_row)
+
+    def add_trait(self):
+        self.add_item_to_list(self.traits_list, "特性の追加")
+
+    def remove_trait(self):
+        self.remove_item_from_list(self.traits_list)
+
+    def add_tic(self):
+        self.add_item_to_list(self.tics_list, "口癖の追加")
+
+    def remove_tic(self):
+        self.remove_item_from_list(self.tics_list)
+        
+    # --- ダイアログの結果を取得 ---
+    def get_character(self) -> Character:
+        """UIの現在の入力値からCharacterオブジェクトを生成して返す"""
+        traits = [self.traits_list.item(i).text() for i in range(self.traits_list.count())]
+        tics = [self.tics_list.item(i).text() for i in range(self.tics_list.count())]
+        
+        return Character(
+            name=self.name_input.text().strip(),
+            voice=self.voice_combo.currentData(),
+            personality=self.personality_input.text().strip(),
+            speech_style=self.speech_style_input.text().strip(),
+            role=self.role_input.text().strip() or None,
+            background=self.background_input.toPlainText().strip() or None,
+            traits=traits,
+            verbal_tics=tics
+        )
+        
+    def accept(self):
+        """OKボタンが押されたときのバリデーション"""
+        if not self.name_input.text().strip():
+            QMessageBox.warning(self, "入力エラー", "キャラクターの名前は必須です。")
+            return
+        super().accept()
 
 class SettingsDialog(QDialog):
     """APIキーとモデル名を設定するためのダイアログ"""
@@ -165,122 +290,110 @@ class SettingsDialog(QDialog):
             self.populate_api_keys(keys)
 
 class SpeakerDialog(QDialog):
-    """話者設定を行うためのダイアログ"""
-    def __init__(self, speakers_dict: Dict[str, str], parent=None):
+    """
+    キャラクターの一覧を管理し、編集するためのダイアログ。
+    """
+    def __init__(self, characters: List[Character], parent=None):
         super().__init__(parent)
-        self.setWindowTitle("話者の設定")
-        self.setMinimumSize(450, 300)
+        self.setWindowTitle("キャラクター設定")
+        self.setMinimumSize(400, 500)
 
-        # Widgets
-        self.speaker_table = QTableWidget()
-        self.speaker_table.setColumnCount(2)
-        self.speaker_table.setHorizontalHeaderLabels(["話者名", "ボイス名"])
-        self.speaker_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.speaker_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.populate_table(speakers_dict)
+        # 編集対象のキャラクターリストをインスタンス変数として保持
+        # 元のリストを直接変更しないように、コピーを作成する
+        self.characters = list(characters)
 
-        self.add_btn = QPushButton("話者を追加")
-        self.remove_btn = QPushButton("選択した話者を削除")
-        
-        # Layout
-        layout = QVBoxLayout(self)
-        layout.addWidget(self.speaker_table)
-        
+        # --- UIウィジェットの初期化 ---
+        self.list_widget = QListWidget()
+        self.list_widget.setToolTip("編集したいキャラクターをダブルクリックするか、選択して「編集」ボタンを押してください。")
+
+        self.add_btn = QPushButton("キャラクターを追加...")
+        self.edit_btn = QPushButton("選択したキャラクターを編集...")
+        self.remove_btn = QPushButton("選択したキャラクターを削除")
+
+        # --- レイアウトの設定 ---
+        main_layout = QVBoxLayout(self)
+        main_layout.addWidget(self.list_widget)
+
         btn_layout = QHBoxLayout()
         btn_layout.addWidget(self.add_btn)
+        btn_layout.addWidget(self.edit_btn)
         btn_layout.addWidget(self.remove_btn)
-        layout.addLayout(btn_layout)
-        
-        # Buttons
+        main_layout.addLayout(btn_layout)
+
+        # OK/Cancelボタン
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        button_box.accepted.connect(self.accept_and_validate)
+        main_layout.addWidget(button_box)
+
+        # --- 初期値の設定と接続 ---
+        self.populate_list()
+
+        # 接続
+        self.add_btn.clicked.connect(self.add_character)
+        self.edit_btn.clicked.connect(self.edit_character)
+        self.remove_btn.clicked.connect(self.remove_character)
+        
+        # ダブルクリックでも編集できるようにする
+        self.list_widget.itemDoubleClicked.connect(self.edit_character)
+        
+        button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
         
-        # Connections
-        self.add_btn.clicked.connect(self.add_row)
-        self.remove_btn.clicked.connect(self.remove_row)
-
-    def populate_table(self, speakers_dict):
-        """渡された辞書でテーブルを初期化する"""
-        self.speaker_table.setRowCount(len(speakers_dict))
-        for i, (name, voice) in enumerate(speakers_dict.items()):
-            self.speaker_table.setItem(i, 0, QTableWidgetItem(name))
+    def populate_list(self):
+        """インスタンスが持つキャラクターリストでUIを更新する"""
+        self.list_widget.clear()
+        for char in self.characters:
+            # リストにはキャラクターの名前を表示
+            self.list_widget.addItem(char.name)
             
-            voice_combo = QComboBox()
-            voice_combo.addItems(AVAILABLE_VOICES) # 完全な表示名を追加
-
-            # ★変更ここから★
-            # JSONから来る 'voice' (例: "Charon") に対応する表示名 ("Charon -- Informative") を探して設定する
-            found_display_name = ""
-            for display_name in AVAILABLE_VOICES:
-                if display_name.startswith(voice + " --"):
-                    found_display_name = display_name
-                    break
+    def add_character(self):
+        """「追加」ボタンの処理。CharacterEditDialogを新規モードで開く"""
+        dialog = CharacterEditDialog(parent=self)
+        if dialog.exec():
+            # OKが押されたら、新しいキャラクターを取得してリストに追加
+            new_character = dialog.get_character()
+            self.characters.append(new_character)
+            self.populate_list() # UIを更新
+            # 追加した項目を選択状態にする
+            self.list_widget.setCurrentRow(len(self.characters) - 1)
             
-            if found_display_name:
-                voice_combo.setCurrentText(found_display_name)
-            else:
-                # もしJSONから来たボイス名が AVAILABLE_VOICES に見つからない場合（例えば古い設定やカスタムボイス）
-                # そのボイス名をコンボボックスの最初の項目として追加し、選択状態にする
-                if voice:
-                    voice_combo.insertItem(0, voice)
-                    voice_combo.setCurrentIndex(0)
-            # ★変更ここまで★
+    def edit_character(self):
+        """「編集」ボタンの処理。CharacterEditDialogを編集モードで開く"""
+        current_row = self.list_widget.currentRow()
+        if current_row < 0:
+            QMessageBox.information(self, "情報", "編集したいキャラクターをリストから選択してください。")
+            return
             
-            self.speaker_table.setCellWidget(i, 1, voice_combo)
-
-    def add_row(self):
-        """テーブルに空の行を追加する"""
-        row_count = self.speaker_table.rowCount()
-        self.speaker_table.insertRow(row_count)
+        character_to_edit = self.characters[current_row]
         
-        self.speaker_table.setItem(row_count, 0, QTableWidgetItem("")) # 空のアイテムで初期化
+        dialog = CharacterEditDialog(character=character_to_edit, parent=self)
+        if dialog.exec():
+            # OKが押されたら、更新されたキャラクターでリストを置き換え
+            updated_character = dialog.get_character()
+            self.characters[current_row] = updated_character
+            self.populate_list() # UIを更新
+            # 編集した項目を選択状態に戻す
+            self.list_widget.setCurrentRow(current_row)
+
+    def remove_character(self):
+        """「削除」ボタンの処理"""
+        current_row = self.list_widget.currentRow()
+        if current_row < 0:
+            QMessageBox.information(self, "情報", "削除したいキャラクターをリストから選択してください。")
+            return
+            
+        character_to_remove = self.characters[current_row]
+        reply = QMessageBox.question(
+            self,
+            "削除の確認",
+            f"本当にキャラクター「{character_to_remove.name}」を削除しますか？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
         
-        voice_combo = QComboBox()
-        voice_combo.addItems(AVAILABLE_VOICES)
-        # デフォルトで最初の項目を選択状態にする
-        if AVAILABLE_VOICES:
-            voice_combo.setCurrentIndex(0)
-        self.speaker_table.setCellWidget(row_count, 1, voice_combo)
-
-        self.speaker_table.setCurrentCell(row_count, 0)
-        self.speaker_table.edit(self.speaker_table.currentIndex())
-
-    def remove_row(self):
-        """テーブルで選択されている行を削除する"""
-        current_row = self.speaker_table.currentRow()
-        if current_row >= 0:
-            self.speaker_table.removeRow(current_row)
-
-    def get_speakers(self):
-        """現在のテーブルの内容を辞書として返す"""
-        speakers = {}
-        for row in range(self.speaker_table.rowCount()):
-            name_item = self.speaker_table.item(row, 0)
-            voice_combo_widget = self.speaker_table.cellWidget(row, 1)
-
-            if name_item and name_item.text().strip() and voice_combo_widget:
-                speaker_name = name_item.text().strip()
-                selected_display_name = voice_combo_widget.currentText().strip() # コンボボックスの現在選択されている完全な表示名
-
-                # ★変更ここから★
-                # ' -- ' で分割し、ボイス名（最初の部分）のみを取得
-                voice_name = selected_display_name.split(' -- ')[0]
-                # ★変更ここまで★
-
-                if speaker_name and voice_name:
-                    speakers[speaker_name] = voice_name
-        return speakers
-    
-    def accept_and_validate(self):
-        """OKボタンが押されたときにバリデーションを行い、問題がなければダイアログを閉じる"""
-        speakers = self.get_speakers()
-        if not speakers:
-            reply = QMessageBox.question(self, "話者設定の確認",
-                                         "話者が一人も設定されていません。続行しますか？",
-                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                         QMessageBox.StandardButton.No)
-            if reply == QMessageBox.StandardButton.No:
-                return
-        super().accept()
+        if reply == QMessageBox.StandardButton.Yes:
+            del self.characters[current_row]
+            self.populate_list() # UIを更新
+            
+    def get_characters(self) -> List[Character]:
+        """ダイアログの結果として、最終的なキャラクターリストを返す"""
+        return self.characters

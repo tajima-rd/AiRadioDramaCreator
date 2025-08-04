@@ -3,7 +3,7 @@ from pathlib import Path
 
 # 新しいモジュールをインポート
 from core.orchestrator import run_project_processing
-from utils.project_loader import load_project_config
+from utils.project_loader import load_project_from_file
 from core.api_client import ApiKeyManager
 from gui.run import run_gui
 

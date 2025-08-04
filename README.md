@@ -88,7 +88,8 @@ AiRadioDramaCreator/
 
 2.  **仮想環境の作成と有効化 (推奨)**:
     ```bash
-    python -m venv venv
+    # PyQtの環境はシステムにインストールされているものを使用する。
+    python3 -m venv venv --system-site-packages
     source venv/bin/activate  # macOS / Linux
     # venv\Scripts\activate   # Windows
     ```
@@ -101,7 +102,6 @@ AiRadioDramaCreator/
     ```text
     google-genai~=1.28.0
     pydub~=0.25.1
-    PyQt6~=6.7.0
     ```
 
 ## 使い方

@@ -19,14 +19,14 @@ from .app_ui_setup import setup_main_ui
 from .dialogs import SettingsDialog, SpeakerDialog
 
 try:
-    from core.configs import Project
+    from core.configs import Project, Character, convert_speaker_dict_to_character
     from core.orchestrator import (
         generate_dialog_from_script, 
         generate_ssml_from_text, 
         generate_audio_from_ssml
     )
     from utils.text_processing import split_markdown_to_files
-    from utils.project_loader import load_project_config, save_project_config
+    from utils.project_loader import load_project_from_file, save_project_config
     from core.api_client import ApiKeyManager
     from core.api_client import GeminiApiClient
 except ImportError as e:
@@ -40,6 +40,7 @@ STATUS_COLOR = {
 }
 
 project: Project = None
+# characters: List[Character] = None
 project_file_path = None
 api_key_manager: ApiKeyManager = None 
 speech_client: GeminiApiClient = None
@@ -82,7 +83,7 @@ class DialogCreationWorker(QObject):
                     saved_dialog_path = generate_dialog_from_script(
                         script_file,
                         dialog_output_dir,
-                        project.speakers,
+                        project.characters,
                         text_client
                     )
 
@@ -144,7 +145,7 @@ class SsmlCreationWorker(QObject):
                     self.file_status_update.emit(txt_file.name, "PROCESSING")
 
                     saved_ssml_path = generate_ssml_from_text(
-                        txt_file, ssml_output_dir, project.speakers, text_client
+                        txt_file, ssml_output_dir, project.characters, text_client
                     )
 
                     if saved_ssml_path:
@@ -205,7 +206,7 @@ class AudioCreationWorker(QObject):
                     self.file_status_update.emit(ssml_file.name, "PROCESSING")
 
                     generate_audio_from_ssml(
-                        ssml_file, audio_output_dir, project.speakers, speech_client
+                        ssml_file, audio_output_dir, project.characters, speech_client
                     )
                     status = "SUCCESS"
                 except Exception as e:
@@ -330,22 +331,21 @@ class AppGUI(QMainWindow):
             return
 
         # ダイアログの初期値を現在のプロジェクト設定から取得
-        initial_speakers = project.speakers
+        # initial_speakers = project.characters
+        # characters_list = convert_speaker_dict_to_character(initial_speakers)
 
-        dialog = SpeakerDialog(initial_speakers, self)
+        dialog = SpeakerDialog(project.characters, self)
+
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            new_speakers = dialog.get_speakers()
-
-            # project グローバル変数を更新
-            project.speakers = new_speakers
+            # 4. ダイアログから返ってくるのは、必ず更新された List[Character]
+            project.characters = dialog.get_characters()
 
             # ↓ この部分のプログラムを作る必要がある。
             self.save_project_config_to_file()
 
             self.update_log("デバッグ: 話者設定が更新されました。\n")
-            # 話者設定はAPIクライアントの再初期化には通常影響しない
-            # ただし、process_drama_file は project.speakers を参照する。
-            self.update_log(f"更新された話者: {new_speakers}\n")
+            
+            self.update_log(f"更新された話者: {project.characters}\n")
 
     def initialize_api_clients(self):
         global project, api_key_manager, speech_client, text_client # グローバル変数を変更するためにglobal宣言
@@ -438,7 +438,7 @@ class AppGUI(QMainWindow):
             created_date=now_iso,
             updated_date=now_iso,
             root_path=project_root_dir, # Projectオブジェクトのroot_pathは選択されたディレクトリ
-            speakers={}, # 話者設定は後で設定ダイアログで入力してもらう
+            characters=[], # 話者設定は後で設定ダイアログで入力してもらう
             wait_time=30
         )
 
@@ -480,94 +480,148 @@ class AppGUI(QMainWindow):
 
     def load_project_info(self):
         """
-        プロジェクト情報を設定ファイルから読み込み、GUIコンポーネントを更新します。
-        グローバル変数 `project` をインスタンス化し、関連情報を設定します。
+        プロジェクトファイルを読み込み、Projectオブジェクトを生成して、GUIを更新します。
         """
-        global project
+        global project, project_file_path # グローバル変数を参照
 
+        # --- UIの初期化 ---
         self.log_box.clear()
         self.start_audio_creation_btn.setEnabled(False)
-        self.start_dialog_creation_btn.setEnabled(False)
+        # (中略: 他ボタンの無効化)
         self.start_ssml_creation_btn.setEnabled(False)
-        self.start_audio_creation_btn.setEnabled(False)
 
-        global project_file_path # グローバル変数を参照
+        # --- ファイルパスのチェック ---
         if project_file_path is None:
             self.update_log("エラー: プロジェクトファイルパスが設定されていません。\n")
             QMessageBox.critical(self, "エラー", "プロジェクトファイルパスが未設定です。")
-            self.start_audio_creation_btn.setEnabled(True)
-            return
-        json_config = load_project_config(project_file_path)
-
-        if not json_config:
-            self.update_log("エラー: プロジェクト設定が読み込まれていません。\n")
-            QMessageBox.critical(self, "エラー", "プロジェクトファイルの読み込みに失敗しました。") # エラーメッセージの表示
-            self.start_audio_creation_btn.setEnabled(True)
             return
 
-        # --- グローバル変数 `project` のインスタンス化と初期化 ---
-        # configからProjectコンストラクタに必要なデータを抽出
-        project_settings = json_config.get("project_settings", {})
-        file_paths_conf = json_config.get("file_paths", {})
-        api_settings = json_config.get("api_settings", {})
-        speaker_settings = json_config.get("speaker_settings", {})
-        processing_settings = json_config.get("processing_settings", {})
+        # ★変更点: 新しいローダー関数を呼び出し、完成したProjectオブジェクトを直接受け取る
+        project = load_project_from_file(project_file_path)
 
-        try:
-            global project # projectグローバル変数を変更するためにglobal宣言
-            project = Project(
-                project_name=project_settings.get("project_name", "名称未設定"),
-                project_description=project_settings.get("project_description", ""),
-                author=project_settings.get("author", ""),
-                version=project_settings.get("version", ""),
-                api_keys=api_settings.get("api_keys", []),
-                api_index=api_settings.get("default_api_key_index"),
-                speech_model=api_settings.get("speech_model"),
-                text_model=api_settings.get("text_model"),
-                created_date=project_settings.get("created_at"),
-                updated_date=project_settings.get("updated_at"),
-                root_path=file_paths_conf.get("root_path", ""), # 文字列として渡す
-                speakers=speaker_settings.get("speakers", {}),
-                wait_time=processing_settings.get("wait_seconds", 30)
-            )
-            self.update_log("デバッグ: グローバル変数 'project' が正常にインスタンス化されました。\n")
-            self.update_log(f"デバッグ: Project.root_path: {project.root_path} (型: {type(project.root_path)})\n")
-
-        except Exception as e:
-            self.update_log(f"エラー: プロジェクト情報のインスタンス化中に問題が発生しました: {e}\n")
-            self.update_log(f"詳細エラー情報:\n{traceback.format_exc()}\n")
-            self.start_audio_creation_btn.setEnabled(True)
+        # ★変更点: ProjectオブジェクトがNoneかどうかだけで、成功・失敗を判定
+        if project is None:
+            # load_project_from_file 内部で詳細なエラーログは出力済み
+            self.update_log("エラー: プロジェクトの読み込みに失敗しました。詳細はログを確認してください。\n")
+            QMessageBox.critical(self, "読み込みエラー", "プロジェクトファイルの読み込みに失敗しました。")
             return
 
-        # GUIコンポーネントの更新 (すべて Project インスタンスから値を取得)
+        # --- ここに到達した場合、`project` は有効なオブジェクト ---
+        self.update_log(f"デバッグ: プロジェクト '{project.project_name}' が正常に読み込まれました。\n")
+
+        # --- GUIコンポーネントの更新 (ここからのロジックはほぼ同じ) ---
         self.project_name_label.setText(project.project_name)
-        self.project_path_label.setText(str(project_file_path.name)) 
+        self.project_path_label.setText(str(project_file_path.name))
 
-        # ファイルパス設定の読み込み（Project インスタンスから取得）
-        current_root_path = project.root_path # Projectインスタンスから取得
-        
-        if not current_root_path: # Projectインスタンスのroot_pathがNoneの場合
-            self.update_log("エラー: プロジェクト設定に有効な 'root_path' がありません。プロジェクトを読み込めません。\n")
-            self.start_audio_creation_btn.setEnabled(True)
-            return
+        current_root_path = project.root_path
+        if not current_root_path or not current_root_path.is_dir():
+            self.update_log(f"警告: 設定されたルートパス '{current_root_path}' が無効です。\n")
+            # 必要に応じて、ここで処理を中断する return を入れても良い
 
-        # root_pathはProjectクラスでPathオブジェクトになっていることを想定
-        if not current_root_path.is_dir():
-            self.update_log(f"警告: 設定されたルートパス '{current_root_path}' が存在しないか、ディレクトリではありません。\n")
-
-        # ファイルリストの更新 (dialog_pathが有効な場合のみ)
+        # ファイルリストの更新
         self.update_file_list(current_root_path / "script", self.scenario_file_list_widget, file_type="text", label="シナリオ")
         self.update_file_list(current_root_path / "dialog", self.dialog_file_list_widget, file_type="text", label="台本")
         self.update_file_list(current_root_path / "ssml", self.ssml_file_list_widget, file_type="ssml", label="SSML")
         self.update_file_list(current_root_path / "audio", self.audio_file_list_widget, file_type="audio", label="音声")
         
-        # プロジェクトが正常に読み込めたらボタンを有効化
+        # ボタンの有効化
         self.start_dialog_creation_btn.setEnabled(True)
         self.start_ssml_creation_btn.setEnabled(True)
         self.start_audio_creation_btn.setEnabled(True)
         
-        self.update_log(f"プロジェクト '{project.project_name}' を読み込みました。\n")
+        self.update_log(f"プロジェクト '{project.project_name}' を正常に読み込みました。\n")
         self.initialize_api_clients()
+
+    # def load_project_info(self):
+    #     """
+    #     プロジェクト情報を設定ファイルから読み込み、GUIコンポーネントを更新します。
+    #     グローバル変数 `project` をインスタンス化し、関連情報を設定します。
+    #     """
+    #     global project
+
+    #     self.log_box.clear()
+    #     self.start_audio_creation_btn.setEnabled(False)
+    #     self.start_dialog_creation_btn.setEnabled(False)
+    #     self.start_ssml_creation_btn.setEnabled(False)
+    #     self.start_audio_creation_btn.setEnabled(False)
+
+    #     global project_file_path # グローバル変数を参照
+    #     if project_file_path is None:
+    #         self.update_log("エラー: プロジェクトファイルパスが設定されていません。\n")
+    #         QMessageBox.critical(self, "エラー", "プロジェクトファイルパスが未設定です。")
+    #         self.start_audio_creation_btn.setEnabled(True)
+    #         return
+    #     json_config = load_project_config(project_file_path)
+
+    #     if not json_config:
+    #         self.update_log("エラー: プロジェクト設定が読み込まれていません。\n")
+    #         QMessageBox.critical(self, "エラー", "プロジェクトファイルの読み込みに失敗しました。") # エラーメッセージの表示
+    #         self.start_audio_creation_btn.setEnabled(True)
+    #         return
+
+    #     # --- グローバル変数 `project` のインスタンス化と初期化 ---
+    #     # configからProjectコンストラクタに必要なデータを抽出
+    #     project_settings = json_config.get("project_settings", {})
+    #     file_paths_conf = json_config.get("file_paths", {})
+    #     api_settings = json_config.get("api_settings", {})
+    #     speaker_settings = json_config.get("speaker_settings", {})
+    #     processing_settings = json_config.get("processing_settings", {})
+
+    #     try:
+    #         global project # projectグローバル変数を変更するためにglobal宣言
+    #         project = Project(
+    #             project_name=project_settings.get("project_name", "名称未設定"),
+    #             project_description=project_settings.get("project_description", ""),
+    #             author=project_settings.get("author", ""),
+    #             version=project_settings.get("version", ""),
+    #             api_keys=api_settings.get("api_keys", []),
+    #             api_index=api_settings.get("default_api_key_index"),
+    #             speech_model=api_settings.get("speech_model"),
+    #             text_model=api_settings.get("text_model"),
+    #             created_date=project_settings.get("created_at"),
+    #             updated_date=project_settings.get("updated_at"),
+    #             root_path=file_paths_conf.get("root_path", ""), # 文字列として渡す
+    #             speakers=speaker_settings.get("speakers", {}),
+    #             wait_time=processing_settings.get("wait_seconds", 30)
+    #         )
+    #         self.update_log("デバッグ: グローバル変数 'project' が正常にインスタンス化されました。\n")
+    #         self.update_log(f"デバッグ: Project.root_path: {project.root_path} (型: {type(project.root_path)})\n")
+
+    #     except Exception as e:
+    #         self.update_log(f"エラー: プロジェクト情報のインスタンス化中に問題が発生しました: {e}\n")
+    #         self.update_log(f"詳細エラー情報:\n{traceback.format_exc()}\n")
+    #         self.start_audio_creation_btn.setEnabled(True)
+    #         return
+
+    #     # GUIコンポーネントの更新 (すべて Project インスタンスから値を取得)
+    #     self.project_name_label.setText(project.project_name)
+    #     self.project_path_label.setText(str(project_file_path.name)) 
+
+    #     # ファイルパス設定の読み込み（Project インスタンスから取得）
+    #     current_root_path = project.root_path # Projectインスタンスから取得
+        
+    #     if not current_root_path: # Projectインスタンスのroot_pathがNoneの場合
+    #         self.update_log("エラー: プロジェクト設定に有効な 'root_path' がありません。プロジェクトを読み込めません。\n")
+    #         self.start_audio_creation_btn.setEnabled(True)
+    #         return
+
+    #     # root_pathはProjectクラスでPathオブジェクトになっていることを想定
+    #     if not current_root_path.is_dir():
+    #         self.update_log(f"警告: 設定されたルートパス '{current_root_path}' が存在しないか、ディレクトリではありません。\n")
+
+    #     # ファイルリストの更新 (dialog_pathが有効な場合のみ)
+    #     self.update_file_list(current_root_path / "script", self.scenario_file_list_widget, file_type="text", label="シナリオ")
+    #     self.update_file_list(current_root_path / "dialog", self.dialog_file_list_widget, file_type="text", label="台本")
+    #     self.update_file_list(current_root_path / "ssml", self.ssml_file_list_widget, file_type="ssml", label="SSML")
+    #     self.update_file_list(current_root_path / "audio", self.audio_file_list_widget, file_type="audio", label="音声")
+        
+    #     # プロジェクトが正常に読み込めたらボタンを有効化
+    #     self.start_dialog_creation_btn.setEnabled(True)
+    #     self.start_ssml_creation_btn.setEnabled(True)
+    #     self.start_audio_creation_btn.setEnabled(True)
+        
+    #     self.update_log(f"プロジェクト '{project.project_name}' を読み込みました。\n")
+    #     self.initialize_api_clients()
 
     def open_project_folder(self):
         """

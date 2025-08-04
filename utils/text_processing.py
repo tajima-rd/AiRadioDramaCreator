@@ -7,19 +7,35 @@ if TYPE_CHECKING:
     from core.api_client import GeminiApiClient
 
 from core.generators import TextGenerator
-from core.configs import WriteConfig
+from core.configs import WriteConfig, Character
 
-def get_ordered_speakers(text: str, speakers_dict: Dict[str, str]) -> Dict[str, str]:
+import re
+from typing import List, Dict
+
+# Characterクラスの定義をインポートする必要があります
+# from core.character import Character  # 仮のパス
+
+def get_ordered_characters(text: str, all_characters: List[Character]) -> List[Character]:
     """
-    テキストを解析し、登場する話者を登場順に抽出し、
-    話者名と声の設定を格納した新しい辞書を返します。
+    テキストを解析し、登場するキャラクターを登場順に抽出し、
+    Characterオブジェクトのリストとして返します。
     SSML形式 (<voice name="...">) と 台本形式 (話者名:) の両方に対応します。
-    """
-    found_speakers_dict = {}
-    seen = set()
 
-    # ★変更ここから★
-    # テキストがSSML形式かどうかを判定 (単純なチェック)
+    Args:
+        text (str): 解析対象のテキスト（台本やSSML）。
+        all_characters (List[Character]): プロジェクトに登録されている全キャラクターのリスト。
+
+    Returns:
+        List[Character]: テキストに登場した順に並べられたCharacterオブジェクトのリスト。
+    """
+    # 効率的な検索のために、名前とボイス名からCharacterオブジェクトを引ける辞書を作成
+    name_to_char_map = {char.name: char for char in all_characters}
+    voice_to_char_map = {char.voice.api_name: char for char in all_characters}
+
+    found_characters: List[Character] = []
+    seen_names = set()
+
+    # テキストがSSML形式かどうかを判定
     is_ssml = text.strip().startswith("<speak>") and '<voice' in text
 
     if is_ssml:
@@ -27,22 +43,19 @@ def get_ordered_speakers(text: str, speakers_dict: Dict[str, str]) -> Dict[str, 
         ssml_pattern = re.compile(r'<voice\s+name="([^"]+)">')
         matches = ssml_pattern.finditer(text)
         
-        # ボイス名から話者名を探すための逆引き辞書を作成
-        voice_to_speaker_map = {v: k for k, v in speakers_dict.items()}
-        
         for match in matches:
-            voice_name = match.group(1).strip() # 抽出されたボイス名 (例: "Charon")
+            voice_name = match.group(1).strip()
             
-            # ボイス名に対応する話者名を取得
-            if voice_name in voice_to_speaker_map:
-                speaker_name = voice_to_speaker_map[voice_name]
-                
-                # まだ登場していない話者であれば辞書に追加
-                if speaker_name not in seen:
-                    seen.add(speaker_name)
-                    found_speakers_dict[speaker_name] = speakers_dict[speaker_name]
+            # ボイス名に対応するキャラクターを取得
+            character = voice_to_char_map.get(voice_name)
+            
+            if character:
+                # まだ登場していないキャラクターであればリストに追加
+                if character.name not in seen_names:
+                    seen_names.add(character.name)
+                    found_characters.append(character)
             else:
-                print(f"警告: SSML内のボイス名 '{voice_name}' に対応する話者が見つかりません。")
+                print(f"警告: SSML内のボイス名 '{voice_name}' に対応するキャラクターが見つかりません。")
 
     else:
         # 台本形式の場合: "話者名:" 形式を抽出
@@ -50,16 +63,74 @@ def get_ordered_speakers(text: str, speakers_dict: Dict[str, str]) -> Dict[str, 
         matches = script_pattern.finditer(text)
         
         for match in matches:
-            speaker_name = match.group(1).strip() # 抽出された話者名 (例: "喜一")
+            speaker_name = match.group(1).strip()
             
-            # まだ登場していない、かつ、元の辞書に存在する話者であれば処理
-            if speaker_name not in seen and speaker_name in speakers_dict:
-                seen.add(speaker_name)
-                found_speakers_dict[speaker_name] = speakers_dict[speaker_name]
-    # ★変更ここまで★
+            # 話者名に対応するキャラクターを取得
+            character = name_to_char_map.get(speaker_name)
 
-    print(f"Speakers found in order: {found_speakers_dict}")
-    return found_speakers_dict
+            if character:
+                # まだ登場していないキャラクターであればリストに追加
+                if character.name not in seen_names:
+                    seen_names.add(character.name)
+                    found_characters.append(character)
+
+    # ログ出力用にキャラクター名のリストを作成
+    found_names = [char.name for char in found_characters]
+    print(f"テキストから検出されたキャラクター（登場順）: {found_names}")
+    
+    return found_characters
+
+# def get_ordered_speakers(text: str, speakers_dict: Dict[str, str]) -> Dict[str, str]:
+#     """
+#     テキストを解析し、登場する話者を登場順に抽出し、
+#     話者名と声の設定を格納した新しい辞書を返します。
+#     SSML形式 (<voice name="...">) と 台本形式 (話者名:) の両方に対応します。
+#     """
+#     found_speakers_dict = {}
+#     seen = set()
+
+#     # ★変更ここから★
+#     # テキストがSSML形式かどうかを判定 (単純なチェック)
+#     is_ssml = text.strip().startswith("<speak>") and '<voice' in text
+
+#     if is_ssml:
+#         # SSML形式の場合: <voice> タグから 'name' 属性 (ボイス名) を抽出
+#         ssml_pattern = re.compile(r'<voice\s+name="([^"]+)">')
+#         matches = ssml_pattern.finditer(text)
+        
+#         # ボイス名から話者名を探すための逆引き辞書を作成
+#         voice_to_speaker_map = {v: k for k, v in speakers_dict.items()}
+        
+#         for match in matches:
+#             voice_name = match.group(1).strip() # 抽出されたボイス名 (例: "Charon")
+            
+#             # ボイス名に対応する話者名を取得
+#             if voice_name in voice_to_speaker_map:
+#                 speaker_name = voice_to_speaker_map[voice_name]
+                
+#                 # まだ登場していない話者であれば辞書に追加
+#                 if speaker_name not in seen:
+#                     seen.add(speaker_name)
+#                     found_speakers_dict[speaker_name] = speakers_dict[speaker_name]
+#             else:
+#                 print(f"警告: SSML内のボイス名 '{voice_name}' に対応する話者が見つかりません。")
+
+#     else:
+#         # 台本形式の場合: "話者名:" 形式を抽出
+#         script_pattern = re.compile(r'^\s*([^:]+):', re.MULTILINE)
+#         matches = script_pattern.finditer(text)
+        
+#         for match in matches:
+#             speaker_name = match.group(1).strip() # 抽出された話者名 (例: "喜一")
+            
+#             # まだ登場していない、かつ、元の辞書に存在する話者であれば処理
+#             if speaker_name not in seen and speaker_name in speakers_dict:
+#                 seen.add(speaker_name)
+#                 found_speakers_dict[speaker_name] = speakers_dict[speaker_name]
+#     # ★変更ここまで★
+
+#     print(f"Speakers found in order: {found_speakers_dict}")
+#     return found_speakers_dict
 
 def split_markdown_to_files(in_file_path: str, output_folder_path: str, indent_num: int):
     """
@@ -142,47 +213,53 @@ def create_dialog(script_text: str, speakers_dict: Dict[str, str], text_model_cl
     """
     LLMを使用して、シナリオのテキストから会話形式の台本を生成する。
     """
-    def get_text_generator(script: str, speakers: Dict[str, str], client: 'GeminiApiClient') -> TextGenerator:
-        # 出力形式のサンプルを作成
-        speakers_list = ""
-        sample_text = ""
-        for character in speakers.keys():
-            # 正しい改行コード `\n` を使用
-            sample_text += f"{character}: （ここにセリフが入ります）\n\n"
-            speakers_list += f"{character}\n"
-        
-        print(speakers_list)
+    def get_text_generator(script: str, characters: List[Character], client: 'GeminiApiClient') -> TextGenerator:
+        """
+        キャラクター情報とシナリオから、セリフ生成用のTextGeneratorを生成します。
+        (リファクタリング後)
+        """
+        # 各キャラクターオブジェクトにプロンプトの生成を依頼し、結果を結合する
+        character_profiles_list = [char.get_character_prompt() for char in characters]
+        character_profiles = "".join(character_profiles_list)
 
+        # --- AIへの指示プロンプトを作成 ---
         prompt = f"""
-            あなたは、渡されたシナリオと登場人物リストに基づき、カジュアルな会話台本を生成するアシスタントです。
+            あなたは、プロの脚本家です。渡されたシナリオと詳細な登場人物紹介に基づき、生き生きとした自然な会話台本を生成してください。
 
             ### 絶対的なルール
-            - **必ず指定された登場人物名だけを使用してください。** 他の名前（「話者A」など）は絶対に使用してはいけません。
-            - **登場人物**: {speakers_list.strip()}
+            - **必ず以下の「登場人物紹介」で定義された性格や話し方を忠実に再現してください。**
             - 出力は、必ず「名前: セリフ」の形式にしてください。
             - ト書き、情景描写、効果音など、セリフ以外の要素は一切含めないでください。
             - 各セリフの間には、必ず空行を1行入れてください。
-            - 同じ話者が連続して話さないようにしてください。
+            - できるだけ同じ話者が連続して話さないように、自然な会話の流れを作ってください。
 
-            ### シナリオ
+            ---
+
+            ### 登場人物紹介
+            {character_profiles.strip()}
+
+            ---
+
+            ### シナリオの要約
             {script}
 
-            ### 台本
+            ---
+
+            ### 生成する台本
             """
         
+        # TextGeneratorインスタンスを生成して返す
         return TextGenerator(
             api_conn=client,
-            write_config=WriteConfig(), # 必要に応じてWriteConfigのパラメータを調整
+            write_config=WriteConfig(),
             prompt=prompt,
             parent=None,
             basename=None
         )
 
-    # --- ↓ ここが修正箇所です ↓ ---
     # 先に改行をスペースに置換したプレビュー用の文字列を作成する
     log_preview = script_text[:30].replace('\n', ' ')
     print(f"INFO: Generating dialog from script starting with '{log_preview}...'")
-    # --- ↑ ここが修正箇所です ↑ ---
 
     try:
         # TextGeneratorインスタンスを作成し、.generate()を呼び出してAPIにリクエスト
@@ -193,67 +270,158 @@ def create_dialog(script_text: str, speakers_dict: Dict[str, str], text_model_cl
         print(f"ERROR: An error occurred during dialog generation: {e}")
         return "" # エラーが発生した場合は空文字列を返す
 
-def add_ai_interjections(dialog_text: str, speakers_dict: Dict[str, str], text_model_client: 'GeminiApiClient') -> str:
-    def get_text_generator(previous_speech: str) -> TextGenerator:
-        prompt = f"""
-                    あなたは会話の聞き手です。以下のセリフに対して、自然で短い相槌を一つだけ生成してください。
-                    相槌は20文字以内で、肯定・同意・感心・簡単な質問のいずれかとします。
-                    性別に依存せず、カジュアルで、自然な日本語の相槌を生成してください。
-                    相槌のセリフそのものだけを出力し、話者名や引用符は含めないでください。
-
-                    セリフ: 「{previous_speech}」
-                    相槌:
-                    """
+def add_ai_interjections(dialog_text: str, characters: List[Character], text_model_client: 'GeminiApiClient') -> str:
+    """
+    同じ話者が連続する場合、他のキャラクターによる短い相槌をAIに生成させて挿入する。
+    Characterオブジェクトのリストを扱うように修正されています。
+    """
+    
+    # --- ヘルパー関数: キャラクターの個性を反映した相槌生成器 ---
+    def get_interjection_generator(previous_speech: str, character: Character) -> TextGenerator:
+        """指定されたキャラクターになりきって、相槌を生成するためのTextGeneratorを返す。"""
         
+        # 相槌を打つキャラクターのプロフィールをプロンプト用に生成
+        character_name = character.name
+        character_profile = character.get_character_prompt()
+
+        # AIへの指示プロンプト
+        prompt = f"""
+            あなたは「{character_name}」という人物です。
+            以下の「あなたの設定」を忠実に守り、会話の聞き手として応答してください。
+
+            ### あなたの設定
+            {character_profile.strip()}
+            
+            ### 指示
+            以下の「相手のセリフ」に対して、あなたの性格や話し方を反映した、自然で短い相槌を一つだけ生成してください。
+
+            ### ルール
+            - 相槌は20文字以内にしてください。
+            - 肯定、同意、感心、簡単な質問のいずれかの内容にしてください。
+            - 相槌のセリフそのものだけを出力し、あなたの名前や他の記号（引用符など）は絶対に含めないでください。
+
+            ### 相手のセリフ
+            「{previous_speech}」
+
+            ### あなたの相槌
+            """
+            
         return TextGenerator(
-            api_conn=text_model_client,
+            api_conn=client,  # 引数で渡されたclientを使用
             write_config=WriteConfig(),
             prompt=prompt,
-            parent=None,  # 親ディレクトリは不要
-            basename=None  # ベース名は不要
+            parent=None,
+            basename=None
         )
 
+    # --- メインロジック ---
     lines = dialog_text.strip().split('\n')
     new_lines = []
-    previous_speaker = None
+    previous_speaker_name = None
     previous_speech = ""
     pattern = re.compile(r'^\s*([^:]+):\s*(.*)$')
-    all_speakers = list(speakers_dict.keys())
 
     for line in lines:
         match = pattern.match(line)
         if match:
-            current_speaker = match.group(1).strip()
+            current_speaker_name = match.group(1).strip()
             current_speech = match.group(2).strip()
             
-            if previous_speaker and current_speaker == previous_speaker:
-                print("  - Same speaker detected, interjection.")
-
-                other_speakers = [s for s in all_speakers if s != current_speaker]
-                if other_speakers:
-                    interjecting_speaker = other_speakers[0]
+            # 前の話者と同じ話者が連続して話した場合
+            if previous_speaker_name and current_speaker_name == previous_speaker_name:
+                
+                # 相槌を打つ、別のキャラクターを探す
+                other_characters = [c for c in characters if c.name != current_speaker_name]
+                if other_characters:
+                    # ここでは単純に最初の「他のキャラクター」を選ぶ
+                    # (より高度なロジックも可能: 例 ランダムに選ぶ、直前に話していない人を選ぶなど)
+                    interjecting_character = other_characters[0]
                     
-                    print(f"  - Generating interjection for '{previous_speech[:20]}...'")
-                    response = get_text_generator(previous_speech).generate() 
+                    print(f"  - {interjecting_character.name}が相槌を生成中... (前のセリフ: '{previous_speech[:20]}...')")
                     
-                    # response は既に文字列なので、.text は不要
+                    # 強化されたジェネレーターを呼び出す
+                    response = get_interjection_generator(previous_speech, interjecting_character).generate()
+                    
                     generated_interjection = response.strip().replace('"', '').replace('「', '').replace('」', '')
                     
-                    if 0 < len(generated_interjection) <= 40:
-                            new_lines.append(f"{interjecting_speaker}: {generated_interjection}\n")
+                    if 0 < len(generated_interjection) <= 40: # 長すぎる応答は無視
+                            new_lines.append(f"{interjecting_character.name}: {generated_interjection}\n")
                     else:
-                        print("  - AI response was unsuitable, using random interjection.")
+                        print(f"  - AIの応答が不適切でした: '{generated_interjection}'")
 
             new_lines.append(line)
-            previous_speaker = current_speaker
+            previous_speaker_name = current_speaker_name
             previous_speech = current_speech
         else:
-            # 「話者: 台詞」形式に一致しない行（空行など）も出力結果に含める
+            # 「話者: 台詞」形式に一致しない行（空行など）もそのまま保持
             new_lines.append(line)
-            # ただし、その行が完全に空白でない場合（コメント行など）にのみ、
-            # 会話の連続性を断ち切るために話者情報をリセットする。
-            if line.strip(): # line.strip() は、行が空白のみだと False になる
-                previous_speaker = None
+            if line.strip(): 
+                previous_speaker_name = None
                 previous_speech = ""
 
     return "\n".join(new_lines)
+
+# def add_ai_interjections(dialog_text: str, speakers_dict: Dict[str, str], text_model_client: 'GeminiApiClient') -> str:
+#     def get_text_generator(previous_speech: str) -> TextGenerator:
+#         prompt = f"""
+#                     あなたは会話の聞き手です。以下のセリフに対して、自然で短い相槌を一つだけ生成してください。
+#                     相槌は20文字以内で、肯定・同意・感心・簡単な質問のいずれかとします。
+#                     性別に依存せず、カジュアルで、自然な日本語の相槌を生成してください。
+#                     相槌のセリフそのものだけを出力し、話者名や引用符は含めないでください。
+
+#                     セリフ: 「{previous_speech}」
+#                     相槌:
+#                     """
+        
+#         return TextGenerator(
+#             api_conn=text_model_client,
+#             write_config=WriteConfig(),
+#             prompt=prompt,
+#             parent=None,  # 親ディレクトリは不要
+#             basename=None  # ベース名は不要
+#         )
+
+#     lines = dialog_text.strip().split('\n')
+#     new_lines = []
+#     previous_speaker = None
+#     previous_speech = ""
+#     pattern = re.compile(r'^\s*([^:]+):\s*(.*)$')
+#     all_speakers = list(speakers_dict.keys())
+
+#     for line in lines:
+#         match = pattern.match(line)
+#         if match:
+#             current_speaker = match.group(1).strip()
+#             current_speech = match.group(2).strip()
+            
+#             if previous_speaker and current_speaker == previous_speaker:
+#                 print("  - Same speaker detected, interjection.")
+
+#                 other_speakers = [s for s in all_speakers if s != current_speaker]
+#                 if other_speakers:
+#                     interjecting_speaker = other_speakers[0]
+                    
+#                     print(f"  - Generating interjection for '{previous_speech[:20]}...'")
+#                     response = get_text_generator(previous_speech).generate() 
+                    
+#                     # response は既に文字列なので、.text は不要
+#                     generated_interjection = response.strip().replace('"', '').replace('「', '').replace('」', '')
+                    
+#                     if 0 < len(generated_interjection) <= 40:
+#                             new_lines.append(f"{interjecting_speaker}: {generated_interjection}\n")
+#                     else:
+#                         print("  - AI response was unsuitable, using random interjection.")
+
+#             new_lines.append(line)
+#             previous_speaker = current_speaker
+#             previous_speech = current_speech
+#         else:
+#             # 「話者: 台詞」形式に一致しない行（空行など）も出力結果に含める
+#             new_lines.append(line)
+#             # ただし、その行が完全に空白でない場合（コメント行など）にのみ、
+#             # 会話の連続性を断ち切るために話者情報をリセットする。
+#             if line.strip(): # line.strip() は、行が空白のみだと False になる
+#                 previous_speaker = None
+#                 previous_speech = ""
+
+#     return "\n".join(new_lines)

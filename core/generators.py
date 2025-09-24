@@ -7,10 +7,158 @@ from pydub import AudioSegment
 from google.genai import types
 
 from .api_client import GeminiApiClient
-from .models import SpeechConfig, WriteConfig
+from .models import (
+    SpeechConfig, 
+    WriteConfig
+)
+from .models import SceneConfig
+from .api_client import GeminiApiClient
+
+from typing import (
+    List, 
+    Dict, 
+    Union, 
+    Any, 
+    Optional
+)
+
+class Generator:
+    """
+    APIと通信し、テキストや音声などの生のデータを生成する責務を持つクラス。
+    """
+    def __init__(self, api_conn: GeminiApiClient, scene_config: SceneConfig):
+        if not isinstance(scene_config, SceneConfig):
+            raise TypeError("scene_configはSceneConfigのサブクラスである必要があります。")
+        
+        self.connector = api_conn
+        self.scene_config = scene_config
+
+    def _prepare_contents(self, prompt: str) -> List[types.Content]:
+        return [
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_text(text=prompt),
+                ],
+            ),
+        ]
+
+    def generate_text(self, prompt: str) -> Optional[str]:
+        """
+        テキストをストリーミング生成し、結合した完全な文字列を返す。
+        """
+        try:
+            config = self.scene_config.get_text_config()
+            contents = self._prepare_contents(prompt)
+            
+            stream = self.connector.client.models.generate_content_stream(
+                model=self.connector.model_name,
+                contents=contents,
+                config=config, # ★★★ 修正点: 'generation_config' から 'config' へ ★★★
+            )
+
+            full_response = "".join(chunk.text for chunk in stream if chunk.text)
+            return full_response.strip()
+
+        except Exception as e:
+            print(f"テキスト生成中にエラーが発生しました: {e}")
+            return None
+
+    def generate_audio(self, prompt: str) -> Optional[Dict[str, Union[bytes, str]]]:
+        """
+        音声をストリーミング生成し、生の音声データとMIMEタイプを返す。
+        """
+        try:
+            config = self.scene_config.get_speech_config()
+            contents = self._prepare_contents(prompt)
+
+            stream = self.connector.client.models.generate_content_stream(
+                model=self.connector.model_name,
+                contents=contents,
+                config=config, # ★★★ 修正点: 'generation_config' から 'config' へ ★★★
+            )
+
+            full_audio_data = bytearray()
+            final_mime_type = None
+
+            for chunk in stream:
+                if (
+                    chunk.candidates
+                    and chunk.candidates[0].content
+                    and chunk.candidates[0].content.parts
+                    and chunk.candidates[0].content.parts[0].inline_data
+                ):
+                    inline_data = chunk.candidates[0].content.parts[0].inline_data
+                    full_audio_data.extend(inline_data.data)
+                    final_mime_type = inline_data.mime_type
+            
+            if not full_audio_data or not final_mime_type:
+                print("警告: APIから音声データが返されませんでした。")
+                return None
+
+            return {"audio_data": bytes(full_audio_data), "mime_type": final_mime_type}
+
+        except Exception as e:
+            print(f"音声生成中にエラーが発生しました: {e}")
+            return None
+
+class AudioProcessor:
+    """
+    生の音声データを加工し、ファイルとして保存する責務を持つクラス。
+    このクラスのメソッドはステートレスであるため、静的メソッドとして提供する。
+    """
+    @staticmethod
+    def to_wav(raw_data: bytes, mime_type: str) -> bytes:
+        """
+        MIMEタイプ情報に基づき、生の音声データにWAVヘッダを付与する。
+        """
+        # MIMEタイプからサンプルレート等を解析
+        rate_str = mime_type.split("rate=")[-1]
+        sample_rate = int(rate_str) if rate_str.isdigit() else 24000
+        
+        bits_per_sample = 16
+        num_channels = 1
+        data_size = len(raw_data)
+        bytes_per_sample = bits_per_sample // 8
+        block_align = num_channels * bytes_per_sample
+        byte_rate = sample_rate * block_align
+        chunk_size = 36 + data_size
+
+        header = struct.pack(
+            "<4sI4s4sIHHIIHH4sI",
+            b"RIFF", chunk_size, b"WAVE", b"fmt ",
+            16, 1, num_channels, sample_rate,
+            byte_rate, block_align, bits_per_sample,
+            b"data", data_size
+        )
+        return header + raw_data
+
+    @staticmethod
+    def save_as_mp3(wav_bytes: bytes, output_path: Path) -> Optional[Path]:
+        """
+        WAV形式のバイトデータをMP3ファイルとして保存する。
+        """
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            # pydubはバイトデータから直接オーディオセグメントを読み込める
+            audio = AudioSegment.from_file(io.BytesIO(wav_bytes), format="wav")
+            audio.export(output_path, format="mp3")
+            print(f"MP3ファイルとして保存しました: {output_path}")
+            return output_path
+        except Exception as e:
+            print(f"MP3への変換中にエラーが発生しました: {e}")
+            return None
+
 
 class TextGenerator:
-    def __init__(self, api_conn: GeminiApiClient, write_config: WriteConfig, prompt: str=None, parent=None, basename=None):
+    def __init__(
+            self, 
+            api_conn: GeminiApiClient, 
+            write_config: WriteConfig, 
+            prompt: str=None, 
+            parent=None, 
+            basename=None):
         self.connector = api_conn
         self.content = self._set_content(prompt)
         self.content_config = write_config.model_config
@@ -47,16 +195,15 @@ class TextGenerator:
         
         # 全てのループが終わった後で、結合した完全なテキストを返す
         return full_response.strip()
-        
-        # for chunk in self.connector.client.models.generate_content_stream(
-        #     model=self.connector.model_name,
-        #     contents=self.content,
-        #     config=self.content_config,
-        # ):
-        #     return(chunk.text)
 
 class SpeechGenerator:
-    def __init__(self, api_conn: GeminiApiClient, speech_config: SpeechConfig, ssml_dialog: str, parent:Path, basename: str):
+    def __init__(
+            self, 
+            api_conn: GeminiApiClient, 
+            speech_config: SpeechConfig, 
+            ssml_dialog: str, 
+            parent:Path, 
+            basename: str):
         self.connector = api_conn
         self.content = self._set_content(ssml_dialog)
         self.content_config = speech_config.model_config
@@ -130,7 +277,7 @@ class SpeechGenerator:
         return header + audio_data
 
     def _convert_to_mp3(self, wav_file: Path):
-        # 出力先のMP3ファイルパスを定義する（これは元のままでOK）
+        # 出力先のMP3ファイルパスを定義する
         mp3_file = Path(self.parent / f"{self.basename}.mp3")
 
         # ★修正点1: 入力ファイル(wav_file)の存在をチェックする
@@ -146,7 +293,7 @@ class SpeechGenerator:
             # pydubでWAVファイルを読み込む
             audio = AudioSegment.from_file(wav_file, format=wav_file.suffix.lstrip('.'))
 
-            # ★修正点2: 正しい出力パス(mp3_file)にエクスポートする
+            # MP3にエクスポートする
             audio.export(mp3_file, format="mp3")
 
             print(f"Successfully converted to: {mp3_file}")

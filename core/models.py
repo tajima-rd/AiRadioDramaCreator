@@ -1,28 +1,54 @@
-# AiRadioDramaCreator/core/configs.py
+# AiRadioDramaCreator/core/models.py
+from google.genai import types
 
+from abc import ABC, abstractmethod
 from pathlib import Path
 from datetime import datetime
 from enum import Enum
-from typing import Dict
-from google.genai import types
-from typing import List, Dict, Optional 
-from enum import Enum
+from dataclasses import dataclass
+from typing import (
+    List, 
+    Dict, 
+    Union, 
+    Any, 
+    Optional
+)
 
-from typing import List, Dict, Union, Any
+@dataclass
+class TextParams:
+    temperature: float = 0.8
+    top_p: float = 0.95
+    max_output_tokens: int = 8192
+    thinking_budget: int = -1
+    # 今後、テキスト生成に関するパラメータが増えたらここに追加する
+
+@dataclass
+class SpeechParams:
+    temperature: float = 1.0
+    # 今後、音声生成に関する共通パラメータが増えたらここに追加する
+
+@dataclass
+class Script:
+    order: int
+    voice: str
+    text : str
+
+    def get_line(self):
+        return "{self.voice}: {text}\n\n"
 
 class Voice(Enum):
     """
-    利用可能な話者の情報を定義する列挙型。
-
-    各メンバーは、APIで実際に使用する名前、声の特徴、性別を属性として持ちます。
-    
+    利用可能な話者の情報を定義する列挙型。    
     使用例:
-    >>> print(Voice.ACHERNAR.api_name)
-    'Achernar'
-    >>> print(Voice.ACHERNAR.description)
-    'Soft'
+    Voice.ACHERNAR.api_name
     """
-    def __init__(self, api_name: str, description: str, gender: str):
+    def __init__(
+                self, 
+                api_name: str, 
+                description: str, 
+                gender: str
+            ):
+
         self.api_name = api_name
         self.description = description
         self.gender = gender
@@ -70,11 +96,6 @@ class Voice(Enum):
         """男性の話者のみをリストで返します。"""
         return [member for member in cls if member.gender == 'M']
 
-class SPEECH_CONFIG_TYPE(Enum):
-    SINGLE = "SINGLE"
-    MULTI = "MULTI"
-    SIMPLE = "SIMPLE"
-
 class Character:
     def __init__(
             self,
@@ -119,6 +140,385 @@ class Character:
         
         # 各行を改行で結合し、最後にキャラクター間の区切りとして空行を2つ追加する
         return "\n".join(prompt_parts) + "\n\n"
+
+class SceneConfig(ABC):
+    """
+    あらゆる生成タスクの設定を構築するための汎用的な抽象基底クラス。
+    各モダリティは独立したパラメータオブジェクトによって設定される。
+    """
+    def __init__(self,
+                 speech_params: Optional[SpeechParams] = None,
+                 text_params: Optional[TextParams] = None,
+                 scene_prompt: Optional[str] = None
+                ):
+        """
+        Args:
+            speech_params (Optional[SpeechParams]): 音声生成用のパラメータオブジェクト。
+            text_params (Optional[TextParams]): テキスト生成用のパラメータオブジェクト。
+            scene_prompt (Optional[str]): このシーンの設定を微調整するための共通プロンプト。
+        """
+        self.speech_params = speech_params
+        self.text_params = text_params
+        self.scene_prompt = scene_prompt
+
+        # 渡されたパラメータオブジェクトに基づいて、このインスタンスがサポートする
+        # モダリティを動的に決定する。
+        self.modalities: List[str] = []
+        if self.speech_params is not None:
+            self.modalities.append("audio")
+        if self.text_params is not None:
+            self.modalities.append("text")
+
+        # どちらのパラメータも渡されなかった場合はエラー
+        if not self.modalities:
+            raise ValueError("speech_params または text_params の少なくとも一方は提供される必要があります。")
+
+    def get_speech_config(self) -> types.GenerateContentConfig:
+        """
+        音声生成用のGenerateContentConfigオブジェクトを構築して返す。
+        """
+        if "audio" not in self.modalities:
+            raise AttributeError("このシーン設定に speech_params は提供されていません。")
+        return self._build_speech_config()
+
+    def get_text_config(self) -> types.GenerateContentConfig:
+        """
+        テキスト生成用のGenerateContentConfigオブジェクトを構築して返す。
+        """
+        if "text" not in self.modalities:
+            raise AttributeError("このシーン設定に text_params は提供されていません。")
+        return self._build_text_config()
+
+    @abstractmethod
+    def _build_speech_config(self) -> types.GenerateContentConfig:
+        """
+        【サブクラスで実装】音声生成用の設定オブジェクトを具体的に構築する。
+        self.speech_params と、サブクラス固有の情報（話者など）を使用する。
+        """
+        pass
+
+    @abstractmethod
+    def _build_text_config(self) -> types.GenerateContentConfig:
+        """
+        【サブクラスで実装】テキスト生成用の設定オブジェクトを具体的に構築する。
+        self.text_params を使用する。
+        """
+        pass
+
+class Monolog(SceneConfig):
+    """
+    一人語り（独白）シーンの設定を定義するクラス。
+    単一話者での音声生成と、テキスト生成の設定構築ロジックを担当する。
+    """
+    def __init__(self,
+                 speaker: Character,
+                 speech_params: Optional[SpeechParams] = None,
+                 text_params: Optional[TextParams] = None,
+                 scene_prompt: Optional[str] = None
+                ):
+        """
+        Args:
+            speaker (Character): 独白を行う単一のキャラクター。
+            speech_params (Optional[SpeechParams]): 音声生成用のパラメータ。
+            text_params (Optional[TextParams]): テキスト生成用のパラメータ。
+            scene_prompt (Optional[str]): このシーンの設定を微調整するための共通プロンプト。
+        """
+        # 親クラスのコンストラクタを呼び出し、パラメータを初期化
+        super().__init__(
+            speech_params, 
+            text_params, 
+            scene_prompt
+        )
+
+        if not isinstance(speaker, Character):
+            raise TypeError("speakerはCharacterオブジェクトである必要があります。")
+        self.speaker = speaker
+
+    def _build_speech_config(self) -> types.GenerateContentConfig:
+        """
+        【実装】単一話者向けの音声生成設定を構築する。
+        """
+        # 単一話者用のVoiceConfigオブジェクトを生成
+        voice_config = types.VoiceConfig(
+            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                voice_name=self.speaker.voice.api_name
+            )
+        )
+
+        # 全体のGenerateContentConfigを構築して返す
+        return types.GenerateContentConfig(
+            temperature=self.speech_params.temperature,
+            response_modalities=["audio"],
+            speech_config=types.SpeechConfig(
+                voice_config=voice_config
+            )
+        )
+
+    def _build_text_config(self) -> types.GenerateContentConfig:
+        """
+        【実装】テキスト生成設定を構築する。
+        元のWriteConfigクラスが持っていたロジックをここに集約する。
+        """
+        # 全体のGenerateContentConfigを構築して返す
+        return types.GenerateContentConfig(
+            temperature=self.text_params.temperature,
+            top_p=self.text_params.top_p,
+            max_output_tokens=self.text_params.max_output_tokens,
+            thinking_config=types.ThinkingConfig(
+                thinking_budget=self.text_params.thinking_budget,
+            )
+        )
+
+class Narration(SceneConfig):
+    """
+    ナレーションの設定を定義するクラス。
+    単一話者での音声生成と、テキスト生成の設定構築ロジックを担当する。
+    """
+    def __init__(self,
+                 speaker: Character,
+                 speech_params: Optional[SpeechParams] = None,
+                 text_params: Optional[TextParams] = None,
+                 scene_prompt: Optional[str] = None
+                ):
+        """
+        Args:
+            speaker (Character): 独白を行う単一のキャラクター。
+            speech_params (Optional[SpeechParams]): 音声生成用のパラメータ。
+            text_params (Optional[TextParams]): テキスト生成用のパラメータ。
+            scene_prompt (Optional[str]): このシーンの設定を微調整するための共通プロンプト。
+        """
+        # 親クラスのコンストラクタを呼び出し、パラメータを初期化
+        super().__init__(
+            speech_params, 
+            text_params, 
+            scene_prompt
+        )
+
+        if not isinstance(speaker, Character):
+            raise TypeError("speakerはCharacterオブジェクトである必要があります。")
+        self.speaker = speaker
+
+    def _build_speech_config(self) -> types.GenerateContentConfig:
+        """
+        【実装】単一話者向けの音声生成設定を構築する。
+        元のSpeechConfigクラスが持っていた単一話者用のロジックをここに集約する。
+        """
+        # 単一話者用のVoiceConfigオブジェクトを生成
+        voice_config = types.VoiceConfig(
+            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                voice_name=self.speaker.voice.api_name
+            )
+        )
+
+        # 全体のGenerateContentConfigを構築して返す
+        return types.GenerateContentConfig(
+            temperature=self.speech_params.temperature,
+            response_modalities=["audio"],
+            speech_config=types.SpeechConfig(
+                voice_config=voice_config
+            )
+        )
+
+    def _build_text_config(self) -> types.GenerateContentConfig:
+        """
+        【実装】テキスト生成設定を構築する。
+        元のWriteConfigクラスが持っていたロジックをここに集約する。
+        """
+        # 全体のGenerateContentConfigを構築して返す
+        return types.GenerateContentConfig(
+            temperature=self.text_params.temperature,
+            top_p=self.text_params.top_p,
+            max_output_tokens=self.text_params.max_output_tokens,
+            thinking_config=types.ThinkingConfig(
+                thinking_budget=self.text_params.thinking_budget,
+            )
+        )
+
+class Dialog(SceneConfig):
+    """
+    二人会話シーンの設定を定義するクラス。
+    2人の登場人物に特化した設定構築ロジックを担当する。
+    """
+    def __init__(
+                self,
+                character_1: Character,
+                character_2: Character,
+                speech_params: Optional[SpeechParams] = None,
+                text_params: Optional[TextParams] = None,
+                scene_prompt: Optional[str] = None
+            ):
+
+        super().__init__(
+            speech_params,
+            text_params,
+            scene_prompt
+        )
+
+        if not isinstance(character_1, Character):
+            raise TypeError("character_1 はCharacterオブジェクトである必要があります。")
+        
+        if not isinstance(character_2, Character):
+            raise TypeError("character_2 はCharacterオブジェクトである必要があります。")
+
+        # ★★★ 修正点 ★★★
+        # 登場人物を個別の変数として保持し、意図を明確化する
+        self.character_1 = character_1
+        self.character_2 = character_2
+
+
+    def _build_speech_config(self) -> types.GenerateContentConfig:
+        """
+        【実装】二人会話向けの音声生成設定を構築する。
+        """
+        # ★★★ 修正点 ★★★
+        # 2人の登場人物から設定リストを構築する
+        characters_in_dialog = [self.character_1, self.character_2]
+
+        speaker_config_list = [
+            types.SpeakerVoiceConfig(
+                speaker=char.name,
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_name=char.voice.api_name
+                    )
+                )
+            ) for char in characters_in_dialog
+        ]
+
+        multi_speaker_config = types.MultiSpeakerVoiceConfig(
+            speaker_voice_configs=speaker_config_list
+        )
+        
+        return types.GenerateContentConfig(
+            temperature=self.speech_params.temperature,
+            response_modalities=["audio"],
+            speech_config=types.SpeechConfig(
+                multi_speaker_voice_config=multi_speaker_config
+            )
+        )
+
+    def _build_text_config(self) -> types.GenerateContentConfig:
+        """
+        【実装】テキスト生成設定を構築する。
+        """
+        return types.GenerateContentConfig(
+            temperature=self.text_params.temperature,
+            top_p=self.text_params.top_p,
+            max_output_tokens=self.text_params.max_output_tokens,
+            thinking_config=types.ThinkingConfig(
+                thinking_budget=self.text_params.thinking_budget,
+            )
+        )
+
+class Discussion(SceneConfig):
+    """
+    複数人（3人以上）の会話シーンの設定を定義するクラス。
+    SceneConfigを直接継承し、複数話者の設定構築ロジックを担当する。
+    """
+    def __init__(
+                self,
+                participants: List[Character],
+                speech_params: Optional[SpeechParams] = None,
+                text_params: Optional[TextParams] = None,
+                scene_prompt: Optional[str] = None
+            ):
+
+        # 親クラスのコンストラクタを呼び出し、パラメータを初期化
+        super().__init__(
+            speech_params,
+            text_params,
+            scene_prompt
+        )
+
+        # ★★★ バリデーションを修正 ★★★
+        if not isinstance(participants, list) or len(participants) < 3:
+            raise ValueError("Discussionのparticipantsは3人以上のCharacterを含むリストである必要があります。")
+        
+        # 念のため、リストの中身もチェック
+        if not all(isinstance(p, Character) for p in participants):
+            raise TypeError("participantsリストのすべての要素はCharacterオブジェクトである必要があります。")
+
+        self.participants = participants
+
+    def _build_speech_config(self) -> types.GenerateContentConfig:
+        """
+        【実装】複数話者向けの音声生成設定を構築する。
+        このロジックはDialogクラスと実質的に同じだが、独立して実装する。
+        """
+        # 複数話者用のSpeakerVoiceConfigリストを生成
+        speaker_config_list = [
+            types.SpeakerVoiceConfig(
+                speaker=char.name,
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_name=char.voice.api_name
+                    )
+                )
+            ) for char in self.participants
+        ]
+
+        multi_speaker_config = types.MultiSpeakerVoiceConfig(
+            speaker_voice_configs=speaker_config_list
+        )
+        
+        # ★★★ パラメータの参照元を修正 ★★★
+        return types.GenerateContentConfig(
+            temperature=self.speech_params.temperature,
+            response_modalities=["audio"],
+            speech_config=types.SpeechConfig(
+                multi_speaker_voice_config=multi_speaker_config
+            )
+        )
+
+    def _build_text_config(self) -> types.GenerateContentConfig:
+        """
+        【実装】テキスト生成設定を構築する。
+        このロジックは話者の数に依存しない。
+        """
+        return types.GenerateContentConfig(
+            temperature=self.text_params.temperature,
+            top_p=self.text_params.top_p,
+            max_output_tokens=self.text_params.max_output_tokens,
+            thinking_config=types.ThinkingConfig(
+                thinking_budget=self.text_params.thinking_budget,
+            )
+        )
+
+class Scene:
+    order: int
+
+    def __init__(
+            self,
+            scene_config: SceneConfig,
+            script: str
+    ):
+        self.scene_config = scene_config
+        self.script = script
+
+class Chapter:
+    scenes:List[Scene]
+
+    def __init__(self):
+        self.scenes = list()
+    
+    def insert(self, scene):
+        num = len(self.scenes)
+        scene.order = num
+        self.scenes.append(scene)
+
+class Senario:
+    def __init__(self, chapters, summary):
+        self.chapters = chapters
+        self.summary = summary
+    
+    def get_current_chapter(self):
+        pass
+    
+    def get_previous_chapter(selfr):
+        pass
+    
+    def get_next_chapter(self):
+        pass
 
 class Project:
     def __init__(self, 
@@ -201,6 +601,7 @@ class SpeechConfig:
                 # SpeakerVoiceConfigからVoiceConfigを取り出して単一話者用の変数に格納
                 self.single_speaker_voice_config = speaker_config_list[0]
                 self.model_config = self._get_single_speaker_config()
+                print(self.model_config)
             else:
                 print(f"Using multi-speaker config with {num_speakers} speakers.")
                 # 複数話者用の設定オブジェクトを生成して変数に格納
@@ -221,19 +622,22 @@ class SpeechConfig:
         )
     
     def _get_single_speaker_config(self):
-        if not self.single_speaker_voice_config == None:
+        print("Information: Single Speaker is selected.")
+        if self.single_speaker_voice_config is not None:
+            # GenerateContentConfigにはSpeechConfigオブジェクトを渡します
             return types.GenerateContentConfig(
-                temperature = self.temperature, # Adjust temperature as needed (higher = more varied speech)
+                temperature = self.temperature,
                 response_modalities = self.modalities,
                 speech_config = types.SpeechConfig(
-                    voice_config = self.single_speaker_voice_config
+                    voice_config = self.single_speaker_voice_config.voice_config
                 )
             )
         else:
             print("Warning: No speaker configuration provided. Using default content config.")
-            self.get_simple_config()
+            return self._get_simple_config()
     
     def _get_multi_speaker_config(self):
+        print("Information: Multi Speaker is selected.")
         if not self.multi_speaker_voice_config == None:
             return types.GenerateContentConfig(
                 temperature = self.temperature, # Adjust temperature as needed (higher = more varied speech)
@@ -263,60 +667,3 @@ class WriteConfig:
                 thinking_budget = self.thinking_budget,
             ),
         )
-
-def convert_speaker_dict_to_character(data: Any) -> List[Character]:
-    """
-    話者・キャラクターデータを正規化し、必ず新しい形式(List[Character])で返す。
-
-    この関数は、古い形式(Dict[str, str])と新しい形式(List[Character])の
-    両方のデータ入力を受け付け、互換性を維持します。
-
-    Args:
-        data: 設定ファイルなどから読み込んだキャラクターデータ。
-              以下のいずれかの形式を想定:
-              - 新: List[Character]
-              - 旧: Dict[str, str] (例: {'名前': 'ボイス名'})
-              - それ以外 (None, 空の辞書/リストなど)
-
-    Returns:
-        必ず List[Character] 形式に変換されたデータ。
-        変換不可能な場合や入力が空の場合は、空のリストを返す。
-    """
-    # 1. データが既に新しい形式 (List[Character]) の場合
-    if isinstance(data, list):
-        # リストが空であるか、最初の要素がCharacterインスタンスなら、新しい形式と判断
-        if not data or isinstance(data[0], Character):
-            return data
-
-    # 2. データが古い形式 (Dict[str, str]) の場合
-    if isinstance(data, dict):
-        new_character_list: List[Character] = []
-        default_voice = list(Voice)[0] # 不明なボイス名の場合のフォールバック
-
-        for name, voice_name in data.items():
-            try:
-                # 文字列のボイス名から、対応するVoice Enumメンバーを取得
-                # .upper()で大文字に統一し、堅牢性を高める
-                voice_enum = Voice[voice_name.upper()]
-            except (KeyError, AttributeError):
-                # 設定ファイル上のボイス名がEnumに存在しない場合
-                print(f"警告: ボイス名 '{voice_name}' が見つかりません。デフォルトのボイスを割り当てます。")
-                voice_enum = default_voice
-
-            # 新しいCharacterオブジェクトを生成。
-            # 古い形式には存在しない属性は、空のデフォルト値で初期化。
-            character = Character(
-                name=name,
-                voice=voice_enum,
-                personality="",
-                traits=[],
-                speech_style="",
-                verbal_tics=[]
-                # background と role はデフォルトで None になる
-            )
-            new_character_list.append(character)
-        
-        return new_character_list
-
-    # 3. 予期しない形式やNoneの場合は、空のリストを返す
-    return []

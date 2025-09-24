@@ -12,9 +12,6 @@ from core.models import WriteConfig, Character
 import re
 from typing import List, Dict
 
-# Characterクラスの定義をインポートする必要があります
-# from core.character import Character  # 仮のパス
-
 def get_ordered_characters(text: str, all_characters: List[Character]) -> List[Character]:
     """
     テキストを解析し、登場するキャラクターを登場順に抽出し、
@@ -179,6 +176,7 @@ def create_dialog(script_text: str, speakers_dict: Dict[str, str], text_model_cl
             2.  **出力形式の厳守:** 必ず「名前: セリフ」の形式で出力してください。（例: `Character A: こんにちは。`）
             3.  **セリフ以外の要素は含めない:** ト書き、情景描写、効果音（「笑」など）は一切含めないでください。
             4.  **空行のルール:** 各セリフの間には、必ず空行を1行だけ入れてください。
+            5.  **登場順のルール:** 登場人物のセリフは必ず交互になるようにしてください。同じ人物が連続することは絶対に許可しません。
 
             ---
 

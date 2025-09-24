@@ -6,7 +6,10 @@ from typing import Dict, List
 
 
 try:
-    from .models import SpeechConfig, Character
+    from .models import (
+        SpeechConfig, 
+        Character
+    )
     from .generators import SpeechGenerator
     from .api_client import ApiKeyManager
     from utils.ssml_utils import convert_dialog_to_ssml
@@ -89,10 +92,12 @@ def generate_ssml_from_text(txt_file: Path, ssml_output_dir: Path, characters: L
 
     # --- 依存するヘルパー関数の呼び出しを、新しい形式に統一 ---
 
-    # 注意: add_ai_interjections 関数も List[Character] を受け取れるように修正が必要です
-    print("相槌・間を挿入しています...")
-    dialog_with_interjections = add_ai_interjections(original_dialog, characters, text_client)
-    print("\n--- 相槌挿入後の台本 ---\n" + dialog_with_interjections + "\n---------------------------------\n")
+    # # 注意: add_ai_interjections 関数も List[Character] を受け取れるように修正が必要です
+    # print("相槌・間を挿入しています...")
+    # dialog_with_interjections = add_ai_interjections(original_dialog, characters, text_client)
+    # print("\n--- 相槌挿入後の台本 ---\n" + dialog_with_interjections + "\n---------------------------------\n")
+
+    dialog_with_interjections = original_dialog
 
     # 以前修正した get_ordered_characters を使用
     print("話者の登場順を特定しています...")

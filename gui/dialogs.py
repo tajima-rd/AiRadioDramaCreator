@@ -166,6 +166,115 @@ class CharacterEditDialog(QDialog):
             return
         super().accept()
 
+class SpeakerDialog(QDialog):
+    """
+    キャラクターの一覧を管理し、編集するためのダイアログ。
+    """
+    def __init__(self, characters: List[Character], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("キャラクター設定")
+        self.setMinimumSize(400, 500)
+
+        # 編集対象のキャラクターリストをインスタンス変数として保持
+        # 元のリストを直接変更しないように、コピーを作成する
+        self.characters = list(characters)
+
+        # --- UIウィジェットの初期化 ---
+        self.list_widget = QListWidget()
+        self.list_widget.setToolTip("編集したいキャラクターをダブルクリックするか、選択して「編集」ボタンを押してください。")
+
+        self.add_btn = QPushButton("キャラクターを追加...")
+        self.edit_btn = QPushButton("選択したキャラクターを編集...")
+        self.remove_btn = QPushButton("選択したキャラクターを削除")
+
+        # --- レイアウトの設定 ---
+        main_layout = QVBoxLayout(self)
+        main_layout.addWidget(self.list_widget)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addWidget(self.add_btn)
+        btn_layout.addWidget(self.edit_btn)
+        btn_layout.addWidget(self.remove_btn)
+        main_layout.addLayout(btn_layout)
+
+        # OK/Cancelボタン
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        main_layout.addWidget(button_box)
+
+        # --- 初期値の設定と接続 ---
+        self.populate_list()
+
+        # 接続
+        self.add_btn.clicked.connect(self.add_character)
+        self.edit_btn.clicked.connect(self.edit_character)
+        self.remove_btn.clicked.connect(self.remove_character)
+        
+        # ダブルクリックでも編集できるようにする
+        self.list_widget.itemDoubleClicked.connect(self.edit_character)
+        
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        
+    def populate_list(self):
+        """インスタンスが持つキャラクターリストでUIを更新する"""
+        self.list_widget.clear()
+        for char in self.characters:
+            # リストにはキャラクターの名前を表示
+            self.list_widget.addItem(char.name)
+            
+    def add_character(self):
+        """「追加」ボタンの処理。CharacterEditDialogを新規モードで開く"""
+        dialog = CharacterEditDialog(parent=self)
+        if dialog.exec():
+            # OKが押されたら、新しいキャラクターを取得してリストに追加
+            new_character = dialog.get_character()
+            self.characters.append(new_character)
+            self.populate_list() # UIを更新
+            # 追加した項目を選択状態にする
+            self.list_widget.setCurrentRow(len(self.characters) - 1)
+            
+    def edit_character(self):
+        """「編集」ボタンの処理。CharacterEditDialogを編集モードで開く"""
+        current_row = self.list_widget.currentRow()
+        if current_row < 0:
+            QMessageBox.information(self, "情報", "編集したいキャラクターをリストから選択してください。")
+            return
+            
+        character_to_edit = self.characters[current_row]
+        
+        dialog = CharacterEditDialog(character=character_to_edit, parent=self)
+        if dialog.exec():
+            # OKが押されたら、更新されたキャラクターでリストを置き換え
+            updated_character = dialog.get_character()
+            self.characters[current_row] = updated_character
+            self.populate_list() # UIを更新
+            # 編集した項目を選択状態に戻す
+            self.list_widget.setCurrentRow(current_row)
+
+    def remove_character(self):
+        """「削除」ボタンの処理"""
+        current_row = self.list_widget.currentRow()
+        if current_row < 0:
+            QMessageBox.information(self, "情報", "削除したいキャラクターをリストから選択してください。")
+            return
+            
+        character_to_remove = self.characters[current_row]
+        reply = QMessageBox.question(
+            self,
+            "削除の確認",
+            f"本当にキャラクター「{character_to_remove.name}」を削除しますか？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            del self.characters[current_row]
+            self.populate_list() # UIを更新
+            
+    def get_characters(self) -> List[Character]:
+        """ダイアログの結果として、最終的なキャラクターリストを返す"""
+        return self.characters
+
 class SettingsDialog(QDialog):
     """APIキーとモデル名を設定するためのダイアログ"""
     # ★変更: __init__ に default_index を追加
@@ -289,111 +398,3 @@ class SettingsDialog(QDialog):
             keys = [self.api_key_list_widget.item(i).text().split(' ')[0] for i in range(self.api_key_list_widget.count())]
             self.populate_api_keys(keys)
 
-class SpeakerDialog(QDialog):
-    """
-    キャラクターの一覧を管理し、編集するためのダイアログ。
-    """
-    def __init__(self, characters: List[Character], parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("キャラクター設定")
-        self.setMinimumSize(400, 500)
-
-        # 編集対象のキャラクターリストをインスタンス変数として保持
-        # 元のリストを直接変更しないように、コピーを作成する
-        self.characters = list(characters)
-
-        # --- UIウィジェットの初期化 ---
-        self.list_widget = QListWidget()
-        self.list_widget.setToolTip("編集したいキャラクターをダブルクリックするか、選択して「編集」ボタンを押してください。")
-
-        self.add_btn = QPushButton("キャラクターを追加...")
-        self.edit_btn = QPushButton("選択したキャラクターを編集...")
-        self.remove_btn = QPushButton("選択したキャラクターを削除")
-
-        # --- レイアウトの設定 ---
-        main_layout = QVBoxLayout(self)
-        main_layout.addWidget(self.list_widget)
-
-        btn_layout = QHBoxLayout()
-        btn_layout.addWidget(self.add_btn)
-        btn_layout.addWidget(self.edit_btn)
-        btn_layout.addWidget(self.remove_btn)
-        main_layout.addLayout(btn_layout)
-
-        # OK/Cancelボタン
-        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        main_layout.addWidget(button_box)
-
-        # --- 初期値の設定と接続 ---
-        self.populate_list()
-
-        # 接続
-        self.add_btn.clicked.connect(self.add_character)
-        self.edit_btn.clicked.connect(self.edit_character)
-        self.remove_btn.clicked.connect(self.remove_character)
-        
-        # ダブルクリックでも編集できるようにする
-        self.list_widget.itemDoubleClicked.connect(self.edit_character)
-        
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        
-    def populate_list(self):
-        """インスタンスが持つキャラクターリストでUIを更新する"""
-        self.list_widget.clear()
-        for char in self.characters:
-            # リストにはキャラクターの名前を表示
-            self.list_widget.addItem(char.name)
-            
-    def add_character(self):
-        """「追加」ボタンの処理。CharacterEditDialogを新規モードで開く"""
-        dialog = CharacterEditDialog(parent=self)
-        if dialog.exec():
-            # OKが押されたら、新しいキャラクターを取得してリストに追加
-            new_character = dialog.get_character()
-            self.characters.append(new_character)
-            self.populate_list() # UIを更新
-            # 追加した項目を選択状態にする
-            self.list_widget.setCurrentRow(len(self.characters) - 1)
-            
-    def edit_character(self):
-        """「編集」ボタンの処理。CharacterEditDialogを編集モードで開く"""
-        current_row = self.list_widget.currentRow()
-        if current_row < 0:
-            QMessageBox.information(self, "情報", "編集したいキャラクターをリストから選択してください。")
-            return
-            
-        character_to_edit = self.characters[current_row]
-        
-        dialog = CharacterEditDialog(character=character_to_edit, parent=self)
-        if dialog.exec():
-            # OKが押されたら、更新されたキャラクターでリストを置き換え
-            updated_character = dialog.get_character()
-            self.characters[current_row] = updated_character
-            self.populate_list() # UIを更新
-            # 編集した項目を選択状態に戻す
-            self.list_widget.setCurrentRow(current_row)
-
-    def remove_character(self):
-        """「削除」ボタンの処理"""
-        current_row = self.list_widget.currentRow()
-        if current_row < 0:
-            QMessageBox.information(self, "情報", "削除したいキャラクターをリストから選択してください。")
-            return
-            
-        character_to_remove = self.characters[current_row]
-        reply = QMessageBox.question(
-            self,
-            "削除の確認",
-            f"本当にキャラクター「{character_to_remove.name}」を削除しますか？",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            del self.characters[current_row]
-            self.populate_list() # UIを更新
-            
-    def get_characters(self) -> List[Character]:
-        """ダイアログの結果として、最終的なキャラクターリストを返す"""
-        return self.characters

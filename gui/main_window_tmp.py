@@ -1,86 +1,46 @@
 import os, sys
 import time
-import shutil
+import shutil # ← この行を追加
 from datetime import datetime
 import traceback
 from pathlib import Path
 from typing import List, Dict, Optional
 
 from PyQt6.QtWidgets import (
-    QApplication, 
-    QMainWindow, 
-    QWidget, 
-    QVBoxLayout, 
-    QHBoxLayout,
-    QPushButton, 
-    QLabel, 
-    QLineEdit, 
-    QFileDialog, 
-    QTextEdit, 
-    QMessageBox,
-    QFormLayout, 
-    QListWidget, 
-    QListWidgetItem, 
-    QAbstractItemView,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QPushButton, QLabel, QLineEdit, QFileDialog, QTextEdit, QMessageBox,
+    QFormLayout, QListWidget, QListWidgetItem, QAbstractItemView,
     QDialog
 )
-
-from PyQt6.QtCore import (
-    QObject, 
-    QThread, 
-    pyqtSignal, 
-    Qt, 
-    QUrl
-)
-
-from PyQt6.QtGui import (
-    QAction, 
-    QColor, 
-    QTextCursor, 
-    QDesktopServices
-)
+from PyQt6.QtCore import QObject, QThread, pyqtSignal, Qt, QUrl
+from PyQt6.QtGui import QAction, QColor, QTextCursor, QDesktopServices
 
 from .app_ui_setup import setup_main_ui
 from .dialogs import SettingsDialog, SpeakerDialog
 
 try:
-    from core.models import (
-        Project, 
-        Character
-    )
-
+    from core.models import Project, Character, convert_speaker_dict_to_character
     from core.orchestrator import (
         generate_dialog_from_script, 
         generate_ssml_from_text, 
         generate_audio_from_ssml
     )
-
     from utils.text_processing import split_markdown_to_files
-    
-    from utils.project_loader import (
-        load_project_from_file, 
-        save_project_config
-    )
-
-    from core.api_client import (
-        ApiKeyManager, 
-        GeminiApiClient
-    )
-
+    from utils.project_loader import load_project_from_file, save_project_config
+    from core.api_client import ApiKeyManager
+    from core.api_client import GeminiApiClient
 except ImportError as e:
     print(f"モジュールのインポートエラー: {e}")
     print("core/orchestrator.py, utils/project_loader.py, core/api_client.py がパス上に存在するか確認してください。")
 
 STATUS_COLOR = {
-    "WAITING": QColor("orange"), 
-    "PROCESSING": QColor("blue"),
-    "SUCCESS": QColor("green"), 
-    "ERROR": QColor("red"),
-    "INTERRUPTED": QColor("gray"), 
-    "DEFAULT": QColor("black")
+    "WAITING": QColor("orange"), "PROCESSING": QColor("blue"),
+    "SUCCESS": QColor("green"), "ERROR": QColor("red"),
+    "INTERRUPTED": QColor("gray"), "DEFAULT": QColor("black")
 }
 
 project: Project = None
+# characters: List[Character] = None
 project_file_path = None
 api_key_manager: ApiKeyManager = None 
 speech_client: GeminiApiClient = None
@@ -296,30 +256,10 @@ class AppGUI(QMainWindow):
         # メニューのアクション
         ui_elements_dict["new_action"].triggered.connect(self.new_project)
         ui_elements_dict["open_action"].triggered.connect(self.open_project_file)
-        
-        # --- ▼▼▼ 修正 ▼▼▼ ---
-        self.import_project_action = QAction("プロジェクト設定のインポート(&I)...", self)
-        self.import_project_action.triggered.connect(self.import_project_settings)
-
-        # 「開く」アクションが属するメニュー（ファイルメニュー）を特定する
-        open_action = ui_elements_dict["open_action"]
-        file_menu = open_action.menu()
-
-        if file_menu:
-            # "シナリオファイルのインポート" の前にセパレータとアクションを挿入
-            before_action = ui_elements_dict["import_scenario_action"]
-            file_menu.insertSeparator(before_action)
-            file_menu.insertAction(before_action, self.import_project_action)
-        else:
-            # 念のためのエラーハンドリング
-            print("エラー: ファイルメニューが見つかりませんでした。")
-
         ui_elements_dict["settings_api_action"].triggered.connect(self.show_settings_dialog)
         ui_elements_dict["settings_speaker_action"].triggered.connect(self.show_speaker_dialog)
         ui_elements_dict["import_scenario_action"].triggered.connect(self.import_scenario_files)
-        ui_elements_dict["import_md_scenario_action"].triggered.connect(self.import_md_scenario)
-        ui_elements_dict["import_config_action"].triggered.connect(self.import_project_settings)
-        ui_elements_dict["update_views_action"].triggered.connect(self.update_views)
+        ui_elements_dict["import_md_scenario_action"].triggered.connect(self.import_md_scenario_action)
 
         # 各処理ステージのボタンにメソッドを接続
         self.start_dialog_creation_btn.clicked.connect(self.start_dialog_creation)
@@ -538,84 +478,6 @@ class AppGUI(QMainWindow):
         else:
             self.update_log("プロジェクトファイルの選択がキャンセルされました。\n")
 
-    def import_project_settings(self):
-        """
-        別のプロジェクトファイルからAPIキーとキャラクター設定をインポートします。
-        """
-        global project
-
-        # 1. 現在のプロジェクトが開かれているかチェック
-        if project is None:
-            QMessageBox.warning(self, "インポートエラー", "設定をインポートするには、まずプロジェクトを開くか新規作成してください。")
-            return
-
-        # 2. インポート元のプロジェクトファイルを選択させる
-        import_file_path_str, _ = QFileDialog.getOpenFileName(
-            self,
-            "インポートするプロジェクトファイルを選択",
-            str(Path.home()), # ホームディレクトリを初期位置にする
-            "プロジェクトファイル (*.json)"
-        )
-
-        if not import_file_path_str:
-            self.update_log("プロジェクト設定のインポートがキャンセルされました。\n")
-            return
-
-        import_file_path = Path(import_file_path_str)
-
-        # 3. インポート元のプロジェクトを読み込む
-        self.update_log(f"プロジェクト '{import_file_path.name}' から設定をインポートします...\n")
-        imported_project = load_project_from_file(import_file_path)
-
-        if imported_project is None:
-            error_msg = f"エラー: プロジェクトファイル '{import_file_path.name}' の読み込みに失敗しました。\n"
-            self.update_log(error_msg)
-            QMessageBox.critical(self, "読み込みエラー", error_msg)
-            return
-
-        # 4. 確認ダイアログを表示
-        reply = QMessageBox.question(
-            self,
-            "設定のインポート確認",
-            f"'{imported_project.project_name}' からAPIキーとキャラクター設定をインポートしますか？\n"
-            "現在のプロジェクトの該当設定は上書きされます。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-
-        if reply == QMessageBox.StandardButton.No:
-            self.update_log("インポート処理をキャンセルしました。\n")
-            return
-
-        # 5. 現在のプロジェクトに設定を上書き
-        try:
-            project.api_keys = imported_project.api_keys
-            project.api_index = imported_project.api_index
-            project.speech_model = imported_project.speech_model
-            project.text_model = imported_project.text_model
-            project.characters = imported_project.characters
-
-            self.update_log("APIキーとキャラクター設定をインポートしました。\n")
-
-            # 6. 変更をファイルに保存
-            if self.save_project_config_to_file():
-                self.update_log("プロジェクト設定を保存しました。\n")
-            else:
-                # save_project_config_to_file内でエラーメッセージ表示済み
-                return
-
-            # 7. APIクライアントを再初期化
-            self.initialize_api_clients()
-
-            # 8. 完了をユーザーに通知
-            self.update_log("設定のインポートが正常に完了しました。\n")
-            QMessageBox.information(self, "インポート完了", "APIキーとキャラクター設定が正常にインポートされました。")
-
-        except Exception as e:
-            error_msg = f"エラー: 設定のインポート処理中に予期せぬエラーが発生しました: {e}\n{traceback.format_exc()}\n"
-            self.update_log(error_msg)
-            QMessageBox.critical(self, "インポートエラー", error_msg)
-
     def load_project_info(self):
         """
         プロジェクトファイルを読み込み、Projectオブジェクトを生成して、GUIを更新します。
@@ -634,10 +496,10 @@ class AppGUI(QMainWindow):
             QMessageBox.critical(self, "エラー", "プロジェクトファイルパスが未設定です。")
             return
 
-        # 新しいローダー関数を呼び出し、完成したProjectオブジェクトを直接受け取る
+        # ★変更点: 新しいローダー関数を呼び出し、完成したProjectオブジェクトを直接受け取る
         project = load_project_from_file(project_file_path)
 
-        # ProjectオブジェクトがNoneかどうかだけで、成功・失敗を判定
+        # ★変更点: ProjectオブジェクトがNoneかどうかだけで、成功・失敗を判定
         if project is None:
             # load_project_from_file 内部で詳細なエラーログは出力済み
             self.update_log("エラー: プロジェクトの読み込みに失敗しました。詳細はログを確認してください。\n")
@@ -657,7 +519,10 @@ class AppGUI(QMainWindow):
             # 必要に応じて、ここで処理を中断する return を入れても良い
 
         # ファイルリストの更新
-        self.update_views()
+        self.update_file_list(current_root_path / "script", self.scenario_file_list_widget, file_type="text", label="シナリオ")
+        self.update_file_list(current_root_path / "dialog", self.dialog_file_list_widget, file_type="text", label="台本")
+        self.update_file_list(current_root_path / "ssml", self.ssml_file_list_widget, file_type="ssml", label="SSML")
+        self.update_file_list(current_root_path / "audio", self.audio_file_list_widget, file_type="audio", label="音声")
         
         # ボタンの有効化
         self.start_dialog_creation_btn.setEnabled(True)
@@ -691,7 +556,7 @@ class AppGUI(QMainWindow):
             self.update_log(log_msg)
             QMessageBox.warning(self, "エラー", "先にプロジェクトを開いてください。")
 
-    def import_md_scenario(self):
+    def import_md_scenario_action(self):
         global project
         if not project:
             QMessageBox.warning(self, "インポートエラー", "プロジェクトが読み込まれていません。先にプロジェクトを開いてください。")
@@ -737,7 +602,7 @@ class AppGUI(QMainWindow):
 
         # インポートおよび分割後にシナリオファイルリストを更新
         self.update_scenario_list()
-
+        
     def import_scenario_files(self):
         """
         ファイルダイアログを開き、選択されたTXTファイルをプロジェクトのscriptフォルダにコピーする。
@@ -782,17 +647,6 @@ class AppGUI(QMainWindow):
             self.update_log(f"--- {imported_count}件のシナリオファイルをインポートしました ---\n")
             # インポート後にシナリオファイルリストを更新
             self.update_scenario_list()
-
-    def update_views(self):
-        global project
-
-        if not project == None:
-            self.update_file_list(project.root_path / "script", self.scenario_file_list_widget, file_type="text", label="シナリオ")
-            self.update_file_list(project.root_path / "dialog", self.dialog_file_list_widget, file_type="text", label="台本")
-            self.update_file_list(project.root_path / "ssml", self.ssml_file_list_widget, file_type="ssml", label="SSML")
-            self.update_file_list(project.root_path / "audio", self.audio_file_list_widget, file_type="audio", label="音声")
-
-            self.update_log(f"デバッグ: プロジェクト '{project.project_name}' が再読込されました。\n")
 
     def update_file_list(self, dir_path: Path, list_widget: QListWidget, file_type: str = "text", label: str = "ファイル"):
         list_widget.clear()
@@ -968,3 +822,4 @@ class AppGUI(QMainWindow):
             self.thread.quit()
             self.thread.wait(2000)
         event.accept()
+

@@ -2,7 +2,11 @@ import json
 from pathlib import Path
 from typing import Optional, Dict, List
 
-from core.models import Project, Character, Voice, convert_speaker_dict_to_character
+from core.models import (
+    Project, 
+    Character, 
+    Voice
+)
 
 
 def load_project_from_file(project_file: Path) -> Optional[Project]:
@@ -48,13 +52,6 @@ def load_project_from_file(project_file: Path) -> Optional[Project]:
                     print(f"警告: 保存されていたボイス名 '{voice_name}' が見つかりません。デフォルトを割り当てます。")
                     # (エラー時のフォールバック処理をここに追加しても良い)
                     continue
-
-        # ★後方互換性のための処理: 古い "speaker_settings" があれば変換する
-        elif "speaker_settings" in config and "speakers" in config["speaker_settings"]:
-            print("情報: 古い形式の話者設定を検出しました。新しいキャラクター形式に変換します。")
-            old_speakers_dict = config["speaker_settings"]["speakers"]
-            # 以前作成した変換関数を再利用
-            characters_list = convert_speaker_dict_to_character(old_speakers_dict)
 
         # --- Projectオブジェクトの生成 ---
         project_settings = config.get("project_settings", {})

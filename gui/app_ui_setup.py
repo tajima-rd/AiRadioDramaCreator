@@ -1,8 +1,15 @@
 # gui/app_ui_setup.py
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QLineEdit, QListWidget, QAbstractItemView, QTextEdit
+    QWidget, 
+    QVBoxLayout, 
+    QHBoxLayout,
+    QPushButton, 
+    QLabel, 
+    QLineEdit, 
+    QListWidget, 
+    QAbstractItemView, 
+    QTextEdit
 )
 from PyQt6.QtGui import QAction # QAction はメニューバーのアクション作成に必要
 from PyQt6.QtCore import Qt # Qt.ItemDataRole.UserRole などに必要
@@ -15,30 +22,36 @@ def setup_main_ui(main_window_instance):
     """
     # メニューバーのセットアップ
     menu_bar = main_window_instance.menuBar()
-    file_menu = menu_bar.addMenu("プロジェクト")
-    
-    # QAction はここで作成し、AppGUIインスタンスに直接追加（返り値として渡す）
-    new_action = QAction("プロジェクトの新規作成...", main_window_instance)
-    file_menu.addAction(new_action)
 
+    file_menu = menu_bar.addMenu("プロジェクト")
+    import_menu = menu_bar.addMenu("インポート")
+    settings_menu = menu_bar.addMenu("設定")
+
+    
+    # プロジェクトメニュー
+    new_action = QAction("プロジェクトの新規作成...", main_window_instance)
     open_action = QAction("プロジェクトを開く...", main_window_instance)
+
+    file_menu.addAction(new_action)
     file_menu.addAction(open_action)
 
-    # "インポート" メニュー
-    import_menu = menu_bar.addMenu("インポート")
-
+    # インポートメニュー
     import_scenario_action = QAction("シナリオのインポート...", main_window_instance)
-    import_menu.addAction(import_scenario_action)
-
     import_md_scenario_action = QAction("シナリオの分割インポート...", main_window_instance)
+    import_config_action = QAction("設定ファイルのインポート...", main_window_instance)
+
+    import_menu.addAction(import_scenario_action)
     import_menu.addAction(import_md_scenario_action)
+    import_menu.addAction(import_config_action)
 
     # 設定メニュー
-    settings_menu = menu_bar.addMenu("設定")
     settings_api_action = QAction("API/モデル設定...", main_window_instance)
     settings_speaker_action = QAction("話者設定...", main_window_instance)
+    update_views_action = QAction("ファイルの再読込...", main_window_instance)
+    
     settings_menu.addAction(settings_api_action)
     settings_menu.addAction(settings_speaker_action)
+    settings_menu.addAction(update_views_action)
     
     # メインウィジェットとレイアウトのセットアップ
     main_widget = QWidget()
@@ -143,7 +156,9 @@ def setup_main_ui(main_window_instance):
         "new_action": new_action,
         "open_action": open_action,
         "import_scenario_action": import_scenario_action,
-        "import_md_scenario_action": import_md_scenario_action, 
-        "settings_api_action": settings_api_action,     # ここを追加
-        "settings_speaker_action": settings_speaker_action # ここを追加
+        "import_md_scenario_action": import_md_scenario_action,  
+        "import_config_action": import_config_action,
+        "settings_api_action": settings_api_action,
+        "settings_speaker_action": settings_speaker_action,
+        "update_views_action":update_views_action
     }

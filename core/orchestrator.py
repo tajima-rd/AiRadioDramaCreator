@@ -150,7 +150,6 @@ def generate_audio_from_ssml(
         return
 
     # ★変更点: SSMLの内容から「Characterオブジェクト」の登場順リストを再生成
-    # 呼び出す関数を get_ordered_characters に変更
     ordered_characters_for_audio = get_ordered_characters(ssml_dialog_content, characters)
     
     if not ordered_characters_for_audio:
